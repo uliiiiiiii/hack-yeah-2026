@@ -1,0 +1,27 @@
+# Generated data (keep the folder, not its contents)
+data/*
+!data/.gitkeep
+
+# Environment
+.env
+.env.local
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# OSMnx HTTP cache
+etl/cache/
+
+# Node / Next.js
+node_modules/
+web/.next/
+web/out/
+web/next-env.d.ts
+# MapLibre worker files copied from node_modules by predev/prebuild
+web/public/maplibre/
+
+# OS / editor
+.DS_Store

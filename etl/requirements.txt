@@ -1,0 +1,8 @@
+# Pinned after first successful run (Python 3.11+).
+osmnx==2.1.1
+geopandas==1.2.0
+pandas==3.0.6
+pyarrow==25.0.1
+numpy==2.5.3
+scipy==1.18.1
+shapely==2.1.2
