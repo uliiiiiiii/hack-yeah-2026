@@ -7,8 +7,10 @@ import {
   getRoute,
   RouteRequestError,
   type LatLon,
+  type LightMode,
   type RouteFeature,
   type RouteProperties,
+  type Strength,
 } from "@/lib/api";
 import styles from "./page.module.css";
 
@@ -17,8 +19,15 @@ const MAP_STYLE =
   "https://tiles.openfreemap.org/styles/liberty";
 const KRAKOW_CENTER: [number, number] = [19.94, 50.06];
 const ROUTE_SOURCE = "route";
+const UNCERTAIN_SOURCE = "route-uncertain";
 
 type Status = "idle" | "start-set" | "loading" | "route-ready" | "error";
+
+interface SensoryOpts {
+  noise: boolean;
+  light: LightMode | null;
+  strength: Strength;
+}
 
 function parseLatLon(text: string): LatLon | null {
   const parts = text.split(",");
@@ -35,23 +44,25 @@ const fmt = (p: LatLon) => `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`;
 function markerElement(label: string, cls: "start" | "end"): HTMLDivElement {
   const el = document.createElement("div");
   el.className = `route-marker ${cls}`;
-  el.setAttribute("aria-hidden", "true"); // decorative; state is announced in the panel
+  el.setAttribute("aria-hidden", "true");
   const span = document.createElement("span");
   span.textContent = label;
   el.appendChild(span);
   return el;
 }
 
+function emptyFC(): GeoJSON.FeatureCollection {
+  return { type: "FeatureCollection", features: [] };
+}
+
 export default function Page() {
   const mapContainer = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const mapReady = useRef(false);
   const startMarker = useRef<maplibregl.Marker | null>(null);
   const endMarker = useRef<maplibregl.Marker | null>(null);
   const startPt = useRef<LatLon | null>(null);
   const endPt = useRef<LatLon | null>(null);
   const reduceMotion = useRef(false);
-  // A route requested before the map's style has loaded; drawn once 'load' fires.
   const pendingFeature = useRef<RouteFeature | null>(null);
 
   const [status, setStatus] = useState<Status>("idle");
@@ -60,27 +71,37 @@ export default function Page() {
   const [startText, setStartText] = useState("");
   const [endText, setEndText] = useState("");
 
+  // Sensory selection. A ref mirror lets the stable map-click handler read current values.
+  const [noise, setNoise] = useState(false);
+  const [light, setLight] = useState<LightMode | null>(null);
+  const [strength, setStrength] = useState<Strength>("medium");
+  const optsRef = useRef<SensoryOpts>({ noise, light, strength });
+
   const drawRoute = useCallback((feature: RouteFeature) => {
     const map = mapRef.current;
     if (!map) return;
     const src = map.getSource(ROUTE_SOURCE) as maplibregl.GeoJSONSource | undefined;
     if (!src) {
-      // Style/source not ready yet (tiles still loading): draw it on 'load'.
-      pendingFeature.current = feature;
+      pendingFeature.current = feature; // style not ready yet; draw on 'load'
       return;
     }
     src.setData(feature as unknown as GeoJSON.Feature);
 
+    const unc = map.getSource(UNCERTAIN_SOURCE) as maplibregl.GeoJSONSource | undefined;
+    unc?.setData({
+      type: "FeatureCollection",
+      features: feature.uncertain_segments.map((coords) => ({
+        type: "Feature",
+        properties: {},
+        geometry: { type: "LineString", coordinates: coords },
+      })),
+    } as GeoJSON.FeatureCollection);
+
     const coords = feature.geometry.coordinates;
     const bounds = coords.reduce(
       (b, c) => b.extend(c as [number, number]),
-      new maplibregl.LngLatBounds(
-        coords[0] as [number, number],
-        coords[0] as [number, number],
-      ),
+      new maplibregl.LngLatBounds(coords[0] as [number, number], coords[0] as [number, number]),
     );
-    // Keep the route clear of the panel: it sits on the left on wide screens and
-    // docks to the bottom on narrow ones (see page.module.css).
     const narrow = window.innerWidth < 520;
     const padding = narrow
       ? { top: 40, bottom: Math.round(window.innerHeight * 0.5), left: 30, right: 30 }
@@ -90,8 +111,8 @@ export default function Page() {
 
   const clearRouteLine = useCallback(() => {
     const map = mapRef.current;
-    const src = map?.getSource(ROUTE_SOURCE) as maplibregl.GeoJSONSource | undefined;
-    src?.setData({ type: "FeatureCollection", features: [] });
+    (map?.getSource(ROUTE_SOURCE) as maplibregl.GeoJSONSource | undefined)?.setData(emptyFC());
+    (map?.getSource(UNCERTAIN_SOURCE) as maplibregl.GeoJSONSource | undefined)?.setData(emptyFC());
   }, []);
 
   const requestRoute = useCallback(
@@ -99,7 +120,7 @@ export default function Page() {
       setStatus("loading");
       setErrorMsg("");
       try {
-        const feature = await getRoute(from, to);
+        const feature = await getRoute(from, to, optsRef.current);
         drawRoute(feature);
         setProps(feature.properties);
         setStatus("route-ready");
@@ -141,9 +162,7 @@ export default function Page() {
             endPt.current = np;
             setEndText(fmt(np));
           }
-          if (startPt.current && endPt.current) {
-            void requestRoute(startPt.current, endPt.current);
-          }
+          if (startPt.current && endPt.current) void requestRoute(startPt.current, endPt.current);
         });
         ref.current = marker;
       } else {
@@ -198,7 +217,6 @@ export default function Page() {
         setEnd(p);
         void requestRoute(startPt.current, p);
       } else {
-        // Both already set: start a fresh route from this click.
         endMarker.current?.remove();
         endMarker.current = null;
         endPt.current = null;
@@ -209,7 +227,6 @@ export default function Page() {
     [setStart, setEnd, requestRoute, clearRouteLine],
   );
 
-  // Form submit: use the two text inputs as a non-map alternative.
   const onSubmitForm = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
@@ -222,14 +239,17 @@ export default function Page() {
       }
       setStart(from);
       setEnd(to);
-      const map = mapRef.current;
-      if (map) {
-        map.setCenter([from.lon, from.lat]);
-      }
+      mapRef.current?.setCenter([from.lon, from.lat]);
       void requestRoute(from, to);
     },
     [startText, endText, setStart, setEnd, requestRoute],
   );
+
+  // Keep the opts ref in sync and re-route when the user changes their selection.
+  useEffect(() => {
+    optsRef.current = { noise, light, strength };
+    if (startPt.current && endPt.current) void requestRoute(startPt.current, endPt.current);
+  }, [noise, light, strength, requestRoute]);
 
   useEffect(() => {
     if (mapRef.current || !mapContainer.current) return;
@@ -237,10 +257,6 @@ export default function Page() {
       typeof window !== "undefined" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    // Load MapLibre's worker from a stable public URL. Bundlers don't reliably
-    // emit MapLibre's import.meta.url worker chunk, which would 404 and leave the
-    // map blank. The file is copied into public/maplibre/ by the predev/prebuild
-    // script; it imports ./maplibre-gl-shared.mjs from the same folder.
     maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
     const map = new maplibregl.Map({
@@ -253,20 +269,17 @@ export default function Page() {
     mapRef.current = map;
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "top-right");
-    // ODbL requires visible OpenStreetMap attribution; keep it expanded.
     map.addControl(
       new maplibregl.AttributionControl({
         compact: false,
-        customAttribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        customAttribution:
+          '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       }),
     );
 
     map.on("load", () => {
-      mapReady.current = true;
-      map.addSource(ROUTE_SOURCE, {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
+      map.addSource(ROUTE_SOURCE, { type: "geojson", data: emptyFC() });
+      map.addSource(UNCERTAIN_SOURCE, { type: "geojson", data: emptyFC() });
       map.addLayer({
         id: "route-casing",
         type: "line",
@@ -281,8 +294,15 @@ export default function Page() {
         layout: { "line-cap": "round", "line-join": "round" },
         paint: { "line-color": "#0b5cad", "line-width": 4 },
       });
+      // Uncertain-data overlay: dashed so it reads without relying on colour alone.
+      map.addLayer({
+        id: "route-uncertain-line",
+        type: "line",
+        source: UNCERTAIN_SOURCE,
+        layout: { "line-cap": "butt", "line-join": "round" },
+        paint: { "line-color": "#d98a00", "line-width": 4, "line-dasharray": [2, 2] },
+      });
 
-      // If a route was requested while tiles were still loading, draw it now.
       if (pendingFeature.current) {
         const f = pendingFeature.current;
         pendingFeature.current = null;
@@ -295,12 +315,11 @@ export default function Page() {
     return () => {
       map.remove();
       mapRef.current = null;
-      mapReady.current = false;
     };
-    // onMapClick is stable via refs; intentionally run once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const anyActive = noise || light !== null;
   const liveMessage =
     status === "error"
       ? errorMsg
@@ -312,6 +331,11 @@ export default function Page() {
             ? "Start point A set. Click the map again, or fill in the destination, to get a route."
             : "Click the map to set your start point (A).";
 
+  const noiseExp = props?.exposure?.noise;
+  const lightExp = props?.exposure?.light;
+  const noiseUnc = props?.uncertainty?.noise;
+  const lightUnc = props?.uncertainty?.light;
+
   return (
     <main className={styles.shell}>
       <div ref={mapContainer} className={styles.map} role="application" aria-label="Map of Kraków" />
@@ -319,9 +343,49 @@ export default function Page() {
       <section className={styles.panel} aria-label="Route planner">
         <h1 className={styles.title}>Kraków walking routes</h1>
         <p className={styles.hint}>
-          Click two points on the map, or type coordinates below. Markers A and B
-          can be dragged to update the route.
+          Click two points on the map, or type coordinates below. Pick what affects
+          you and we route around it — dashed parts are where we lack data.
         </p>
+
+        <fieldset className={styles.factors}>
+          <legend>What should we route around?</legend>
+          <label className={styles.check}>
+            <input type="checkbox" checked={noise} onChange={(e) => setNoise(e.target.checked)} />
+            Avoid noisy streets
+          </label>
+
+          <div className={styles.subgroup} role="radiogroup" aria-label="Lighting preference">
+            <span className={styles.subLabel}>Lighting</span>
+            <label className={styles.radio}>
+              <input type="radio" name="light" checked={light === null} onChange={() => setLight(null)} />
+              No preference
+            </label>
+            <label className={styles.radio}>
+              <input type="radio" name="light" checked={light === "prefer_lit"} onChange={() => setLight("prefer_lit")} />
+              Prefer well-lit (e.g. at night)
+            </label>
+            <label className={styles.radio}>
+              <input type="radio" name="light" checked={light === "avoid_bright"} onChange={() => setLight("avoid_bright")} />
+              Avoid bright areas
+            </label>
+          </div>
+
+          {anyActive && (
+            <div className={styles.subgroup}>
+              <label className={styles.subLabel} htmlFor="strength">How strongly</label>
+              <select
+                id="strength"
+                value={strength}
+                onChange={(e) => setStrength(e.target.value as Strength)}
+                className={styles.select}
+              >
+                <option value="low">A little</option>
+                <option value="medium">Moderate</option>
+                <option value="high">A lot</option>
+              </select>
+            </div>
+          )}
+        </fieldset>
 
         <div className={styles.status} aria-live="polite" role="status">
           {status === "error" ? (
@@ -334,10 +398,34 @@ export default function Page() {
         </div>
 
         {status === "route-ready" && props && (
-          <p className={styles.meta}>
-            {props.length_m.toLocaleString()} m · ~{props.duration_min_estimate} min ·{" "}
-            {props.edge_count} segments · profile “{props.profile}”
-          </p>
+          <>
+            <p className={styles.meta}>
+              {props.length_m.toLocaleString()} m · ~{props.duration_min_estimate} min ·{" "}
+              {props.edge_count} segments
+            </p>
+            {(noiseExp || lightExp) && (
+              <ul className={styles.factorStats}>
+                {noiseExp && (
+                  <li>
+                    <strong>Noise:</strong>{" "}
+                    {noiseExp.mean_lden_db != null ? `avg ${noiseExp.mean_lden_db} dB, ` : ""}
+                    {noiseExp.loud_pct}% loud
+                    {noiseUnc && noiseUnc.unknown_pct > 0
+                      ? ` · ${noiseUnc.unknown_pct}% unknown`
+                      : " · data known"}
+                  </li>
+                )}
+                {lightExp && (
+                  <li>
+                    <strong>Lighting:</strong> {lightExp.lit_pct}% well-lit
+                    {lightUnc && lightUnc.unknown_pct > 0
+                      ? ` · ${lightUnc.unknown_pct}% unknown (dashed)`
+                      : ""}
+                  </li>
+                )}
+              </ul>
+            )}
+          </>
         )}
 
         <form className={styles.form} onSubmit={onSubmitForm}>

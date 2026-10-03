@@ -57,6 +57,16 @@ class Graph:
 
         self.nodes = pd.read_parquet(nodes_path)
         self.edges = gpd.read_parquet(edges_path)
+
+        # Merge optional sensory overlays (noise, …) additively, keyed by edge_idx.
+        # This is how new data sources join the single-source-of-truth edge table
+        # without changing the base ETL or the routing plumbing.
+        overlay_path = self.data_dir / "edge_sensory.parquet"
+        self.has_sensory = overlay_path.exists()
+        if self.has_sensory:
+            overlay = pd.read_parquet(overlay_path)
+            self.edges = self.edges.merge(overlay, on="edge_idx", how="left")
+
         self.build_info = json.loads(info_path.read_text())
         self.data_built_at = self.build_info.get("data_built_at")
 
@@ -98,13 +108,18 @@ class Graph:
 
     # ---- routing -------------------------------------------------------------
     def _profile_matrix(self, profile: str) -> ProfileMatrix:
-        if profile in self._profile_cache:
-            return self._profile_cache[profile]
-
+        """Cost matrix for a named registry profile (e.g. 'shortest')."""
         multiplier = PROFILES[profile](self.edges)
+        return self._matrix_from_multiplier(profile, multiplier)
+
+    def _matrix_from_multiplier(self, key: str, multiplier) -> ProfileMatrix:
+        """Build (and cache) a cost matrix from a per-edge multiplier array."""
+        if key in self._profile_cache:
+            return self._profile_cache[key]
+
         multiplier = np.asarray(multiplier, dtype="float64")
         if multiplier.shape[0] != len(self.edges):
-            raise GraphError(f"Profile '{profile}' returned {multiplier.shape[0]} "
+            raise GraphError(f"Cost '{key}' returned {multiplier.shape[0]} "
                              f"multipliers for {len(self.edges)} edges.")
         cost = self.edge_length * multiplier  # inf stays inf -> excluded below
 
@@ -128,12 +143,34 @@ class Graph:
             df["edge_idx"].to_numpy(),
         ))
         pm = ProfileMatrix(matrix=matrix, edge_of_pair=edge_of_pair)
-        self._profile_cache[profile] = pm
+        self._profile_cache[key] = pm
         return pm
 
-    def route(self, src_idx: int, dst_idx: int, profile: str) -> dict | None:
-        """Shortest-cost path from src to dst. Returns None if unreachable."""
-        pm = self._profile_matrix(profile)
+    def route(
+        self,
+        src_idx: int,
+        dst_idx: int,
+        profile: str = "shortest",
+        *,
+        multiplier=None,
+        cache_key: str | None = None,
+    ) -> dict | None:
+        """Shortest-cost path from src to dst. Returns None if unreachable.
+
+        Either pass a registry ``profile`` name, or an explicit per-edge
+        ``multiplier`` array plus a ``cache_key`` identifying that cost (so its
+        matrix can be cached and reused across requests).
+
+        The result includes ``edge_ids`` — the ordered edge_idx of the path — so
+        callers can compute per-edge attributes (e.g. uncertainty) along the route.
+        """
+        if multiplier is not None:
+            if cache_key is None:
+                raise GraphError("cache_key is required when passing a multiplier.")
+            pm = self._matrix_from_multiplier(cache_key, multiplier)
+        else:
+            pm = self._profile_matrix(profile)
+
         dist, pred = dijkstra(
             pm.matrix, directed=True, indices=src_idx, return_predecessors=True
         )
@@ -151,19 +188,20 @@ class Graph:
         path_nodes.reverse()
 
         coords: list[tuple[float, float]] = []
+        edge_ids: list[int] = []
         total_length = 0.0
-        edge_count = 0
         for a, b in zip(path_nodes[:-1], path_nodes[1:]):
-            edge_idx = pm.edge_of_pair[(a, b)]
+            edge_idx = int(pm.edge_of_pair[(a, b)])
+            edge_ids.append(edge_idx)
             total_length += float(self.edge_length[edge_idx])
             seg = self.edge_coords[edge_idx]
             if coords:
                 seg = seg[1:]  # drop duplicated join point
             coords.extend(seg)
-            edge_count += 1
 
         return {
             "coordinates": coords,
             "length_m": total_length,
-            "edge_count": edge_count,
+            "edge_count": len(edge_ids),
+            "edge_ids": edge_ids,
         }

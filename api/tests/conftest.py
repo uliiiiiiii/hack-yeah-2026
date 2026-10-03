@@ -87,6 +87,22 @@ def write_synthetic_data(data_dir: Path) -> None:
         "osmnx_version": "test",
     }))
 
+    # Sensory overlay: make the 0<->1 edges loud (80 dB) and everything else quiet
+    # (52 dB), with noise known for all. Lighting is left all-unknown (lit=NA) so
+    # the light factor exercises the uncertainty path.
+    loud_pairs = {(0, 1), (1, 0)}
+    noise_db = [
+        80.0 if (int(r.u_idx), int(r.v_idx)) in loud_pairs else 52.0
+        for r in gdf.itertuples()
+    ]
+    overlay = pd.DataFrame({
+        "edge_idx": gdf["edge_idx"].to_numpy(),
+        "noise_lden_db": noise_db,
+        "noise_known": True,
+        "noise_band": pd.array(["80+" if d >= 80 else "<55" for d in noise_db], dtype="string"),
+    })
+    overlay.to_parquet(data_dir / "edge_sensory.parquet", index=False)
+
 
 @pytest.fixture()
 def graph(tmp_path):

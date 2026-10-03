@@ -131,3 +131,10 @@ label {
     transition-duration: 0.001ms !important;
   }
 }
+
+@media (prefers-color-scheme: dark) {
+  select {
+    background: #0f1115 !important;
+    color: var(--fg);
+  }
+}
