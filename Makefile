@@ -4,7 +4,7 @@
 # through nvm automatically; if you manage Node another way, just ensure
 # `node --version` is >= 20 before running `make web`.
 
-.PHONY: setup setup-etl setup-api setup-web data audit api api-lan web test clean mobile-apk mobile-open
+.PHONY: setup setup-etl setup-api setup-web data seed-crowds audit api api-lan web test clean mobile-apk mobile-open
 
 PY := python3
 
@@ -43,6 +43,11 @@ setup-web:
 data:
 	cd etl && .venv/bin/python build_graph.py
 	cd etl && .venv/bin/python build_edges.py
+	cd etl && .venv/bin/python build_noise.py
+
+## seed-crowds: seed Kraków venues into your BestTime account (needs the key in .env)
+seed-crowds:
+	cd etl && .venv/bin/python seed_besttime.py
 
 ## audit: run both audits (requires data/ to be built)
 audit:

@@ -107,6 +107,15 @@ class Graph:
         return int(self._node_idx_by_row[row]), dist_m
 
     # ---- routing -------------------------------------------------------------
+    def invalidate_cost_cache(self, contains: str) -> None:
+        """Drop cached cost matrices whose key contains the given substring.
+
+        Used when a dynamic input (e.g. current crowd data) changes, so routes
+        rebuild against the fresh costs instead of reusing a stale matrix.
+        """
+        for k in [k for k in self._profile_cache if contains in k]:
+            del self._profile_cache[k]
+
     def _profile_matrix(self, profile: str) -> ProfileMatrix:
         """Cost matrix for a named registry profile (e.g. 'shortest')."""
         multiplier = PROFILES[profile](self.edges)

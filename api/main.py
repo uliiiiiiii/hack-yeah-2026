@@ -12,7 +12,10 @@ The sensory profile lets a user pick the issues that affect them (noise, light)
 and routes around them, while reporting where the underlying data is unknown.
 """
 import os
+import threading
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -20,9 +23,19 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+import crowds
 import profiles
 from graph import Graph, GraphError
 from profiles import LIGHT_MODES, STRENGTH_WEIGHT, PROFILES, sensory_cost
+
+# Load the repo-root .env (if present) so BESTTIME_API_KEY_PRIVATE etc. are set.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+except Exception:
+    pass
+
+KRAKOW_TZ = ZoneInfo("Europe/Warsaw")
 
 WALK_SPEED_KMH = 5.0
 LOUD_DB = 65.0  # Lden at/above this counts as "loud" in the route summary
@@ -51,6 +64,30 @@ try:
 except GraphError as exc:
     GRAPH = None
     _LOAD_ERROR = str(exc)
+
+CROWD = crowds.CrowdState()
+
+
+def _krakow_now() -> tuple[int, int]:
+    """Current (day_int 0=Mon, hour 0-23) in Kraków local time."""
+    now = datetime.now(KRAKOW_TZ)
+    return now.weekday(), now.hour
+
+
+def _refresh_crowd_async(live: bool = False) -> None:
+    """Refresh current crowd data in the background (never blocks a request)."""
+    if GRAPH is None or not crowds.configured():
+        return
+    day, hour = _krakow_now()
+    threading.Thread(
+        target=CROWD.refresh, args=(GRAPH,),
+        kwargs={"now_day": day, "now_hour": hour, "live": live},
+        daemon=True,
+    ).start()
+
+
+if GRAPH is not None and crowds.configured():
+    _refresh_crowd_async()  # warm the crowd layer at startup
 
 
 def error(status: int, code: str, message: str) -> JSONResponse:
@@ -83,6 +120,7 @@ def available_factors() -> dict:
         "noise": bool(getattr(GRAPH, "has_sensory", False)
                       and "noise_lden_db" in GRAPH.edges.columns),
         "light": "lit" in GRAPH.edges.columns,
+        "crowd": crowds.configured(),
     }
 
 
@@ -97,6 +135,12 @@ def health():
         "data_built_at": GRAPH.data_built_at,
         "profiles": sorted(PROFILES.keys()) + ["sensory"],
         "factors": available_factors(),
+        "crowd_status": {
+            "configured": crowds.configured(),
+            "loaded": CROWD.loaded,
+            "venue_count": CROWD.venue_count,
+            "last_error": CROWD.last_error,
+        },
     }
 
 
@@ -115,6 +159,7 @@ def _route_cost(q):
 
     noise = (q.get("noise") or "").strip().lower() in _TRUE
     light = (q.get("light") or "").strip().lower() or None
+    crowd = (q.get("crowd") or "").strip().lower() in _TRUE
     if light is not None and light not in LIGHT_MODES:
         return error(400, "bad_request",
                      f"Unknown light mode '{light}'. Use one of: {', '.join(LIGHT_MODES)}.")
@@ -128,12 +173,22 @@ def _route_cost(q):
         return error(400, "bad_request", "Noise data is not loaded. Run etl/build_noise.py.")
     if light and not avail.get("light"):
         return error(400, "bad_request", "Lighting data is not available in this dataset.")
+    if crowd and not avail.get("crowd"):
+        return error(400, "bad_request",
+                     "Crowd data needs a BestTime API key (set BESTTIME_API_KEY_PRIVATE).")
+
+    if crowd:
+        # Ensure we have current-ish crowd data; refresh in the background if stale.
+        if not CROWD.loaded or CROWD.is_stale():
+            _refresh_crowd_async()
 
     multiplier, factor_known = sensory_cost(
-        GRAPH.edges, noise=noise, light=light, strength=strength
+        GRAPH.edges, noise=noise, light=light, crowd=crowd, strength=strength
     )
-    cache_key = f"sensory|n={int(noise)}|l={light}|s={strength}"
-    factors = {"profile": "sensory", "noise": noise, "light": light, "strength": strength}
+    crowd_key = f"c={int(crowd)}@{CROWD.epoch}" if crowd else "c=0"
+    cache_key = f"sensory|n={int(noise)}|l={light}|{crowd_key}|s={strength}"
+    factors = {"profile": "sensory", "noise": noise, "light": light,
+               "crowd": crowd, "strength": strength}
     return multiplier, cache_key, factors, factor_known
 
 
@@ -177,6 +232,18 @@ def _summarise(eids, factors, factor_known):
         label = "well-lit" if factors["light"] == "prefer_lit" else "dark"
         val = lit_pct if factors["light"] == "prefer_lit" else (100 - lit_pct)
         parts.append(f"{val:.0f}% {label}, {unk / total * 100:.0f}% unknown lighting")
+
+    if factors.get("crowd"):
+        pen = pd.to_numeric(GRAPH.edges.get("crowd_penalty"), errors="coerce").to_numpy()[eids] \
+            if "crowd_penalty" in GRAPH.edges.columns else np.zeros(len(eids))
+        known = factor_known["crowd"][eids]
+        busy = float(seg_len[known & (pen >= 0.5)].sum())
+        unk = float(seg_len[~known].sum())
+        exposure["crowd"] = {"busy_pct": round(busy / total * 100, 1)}
+        uncertainty["crowd"] = {"unknown_pct": round(unk / total * 100, 1),
+                                "unknown_m": round(unk, 1)}
+        uncertain |= ~known
+        parts.append(f"{busy / total * 100:.0f}% busy, {unk / total * 100:.0f}% no crowd data")
 
     # Group consecutive uncertain edges into sub-paths for a dashed map overlay.
     uncertain_segments: list[list] = []

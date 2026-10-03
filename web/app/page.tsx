@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
+  getHealth,
   getRoute,
   RouteRequestError,
   type LatLon,
@@ -26,6 +27,7 @@ type Status = "idle" | "start-set" | "loading" | "route-ready" | "error";
 interface SensoryOpts {
   noise: boolean;
   light: LightMode | null;
+  crowd: boolean;
   strength: Strength;
 }
 
@@ -74,8 +76,12 @@ export default function Page() {
   // Sensory selection. A ref mirror lets the stable map-click handler read current values.
   const [noise, setNoise] = useState(false);
   const [light, setLight] = useState<LightMode | null>(null);
+  const [crowd, setCrowd] = useState(false);
   const [strength, setStrength] = useState<Strength>("medium");
-  const optsRef = useRef<SensoryOpts>({ noise, light, strength });
+  const optsRef = useRef<SensoryOpts>({ noise, light, crowd, strength });
+
+  // Which factors the backend data supports (crowds needs a BestTime key).
+  const [avail, setAvail] = useState({ noise: true, light: true, crowd: false });
 
   const drawRoute = useCallback((feature: RouteFeature) => {
     const map = mapRef.current;
@@ -247,9 +253,16 @@ export default function Page() {
 
   // Keep the opts ref in sync and re-route when the user changes their selection.
   useEffect(() => {
-    optsRef.current = { noise, light, strength };
+    optsRef.current = { noise, light, crowd, strength };
     if (startPt.current && endPt.current) void requestRoute(startPt.current, endPt.current);
-  }, [noise, light, strength, requestRoute]);
+  }, [noise, light, crowd, strength, requestRoute]);
+
+  // Ask the API which factors are available (e.g. crowds only with a key).
+  useEffect(() => {
+    getHealth()
+      .then((h) => setAvail(h.factors))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (mapRef.current || !mapContainer.current) return;
@@ -319,7 +332,7 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const anyActive = noise || light !== null;
+  const anyActive = noise || crowd || light !== null;
   const liveMessage =
     status === "error"
       ? errorMsg
@@ -333,8 +346,10 @@ export default function Page() {
 
   const noiseExp = props?.exposure?.noise;
   const lightExp = props?.exposure?.light;
+  const crowdExp = props?.exposure?.crowd;
   const noiseUnc = props?.uncertainty?.noise;
   const lightUnc = props?.uncertainty?.light;
+  const crowdUnc = props?.uncertainty?.crowd;
 
   return (
     <main className={styles.shell}>
@@ -353,6 +368,13 @@ export default function Page() {
             <input type="checkbox" checked={noise} onChange={(e) => setNoise(e.target.checked)} />
             Avoid noisy streets
           </label>
+
+          {avail.crowd && (
+            <label className={styles.check}>
+              <input type="checkbox" checked={crowd} onChange={(e) => setCrowd(e.target.checked)} />
+              Avoid busy areas (typical for now)
+            </label>
+          )}
 
           <div className={styles.subgroup} role="radiogroup" aria-label="Lighting preference">
             <span className={styles.subLabel}>Lighting</span>
@@ -403,7 +425,7 @@ export default function Page() {
               {props.length_m.toLocaleString()} m · ~{props.duration_min_estimate} min ·{" "}
               {props.edge_count} segments
             </p>
-            {(noiseExp || lightExp) && (
+            {(noiseExp || lightExp || crowdExp) && (
               <ul className={styles.factorStats}>
                 {noiseExp && (
                   <li>
@@ -420,6 +442,14 @@ export default function Page() {
                     <strong>Lighting:</strong> {lightExp.lit_pct}% well-lit
                     {lightUnc && lightUnc.unknown_pct > 0
                       ? ` · ${lightUnc.unknown_pct}% unknown (dashed)`
+                      : ""}
+                  </li>
+                )}
+                {crowdExp && (
+                  <li>
+                    <strong>Busy areas:</strong> {crowdExp.busy_pct}% usually busy now
+                    {crowdUnc && crowdUnc.unknown_pct > 0
+                      ? ` · ${crowdUnc.unknown_pct}% no data (dashed)`
                       : ""}
                   </li>
                 )}

@@ -102,6 +102,51 @@ Only `shortest` (all ones) is implemented now.
   uses a crude road-class **placeholder** that is a pipeline test only, not a
   finding. Point it at a real 0–1 column later with `--penalty-col <name>`.
 
+## Sensory routing — "pick the issues that affect you"
+
+Beyond `shortest`, the API has a **`sensory`** profile: the user selects which
+issues matter to them and we route around them, always **flagging where the data
+is unknown** (missing data is never treated as "good"). Factors combine into one
+cost; `strength` (low/medium/high) sets how hard we avoid them.
+
+| Factor | Request | Data source | Coverage / honesty |
+|---|---|---|---|
+| **Noise** | `noise=on` | Kraków 2022 strategic acoustic map (road-traffic LDWN/Lden), sampled per edge by `etl/build_noise.py` | **Real, ~100% of the network.** 48% is quiet (<55 dB), ~6% very loud (75-80+). |
+| **Light** | `light=prefer_lit` or `light=avoid_bright` | OSM `lit` tag | Bidirectional: prefer well-lit (e.g. night safety) *or* avoid bright (sensory). ~30% of streets tagged; the rest is flagged unknown. |
+| **Crowds** | `crowd=on` | [BestTime.app](https://besttime.app) live foot traffic | Current busyness, refreshed ~20 min. Venue-based, so coverage depends on how many venues you seed (see below). |
+
+Example: `GET /route?from=50.06,19.94&to=50.05,19.95&profile=sensory&noise=on&light=prefer_lit&strength=high`
+
+The response adds `exposure` (per-factor stats), `uncertainty` (per-factor
+`unknown_pct`), and `uncertain_segments` (sub-paths the web app draws **dashed**).
+`GET /health` reports which factors are available.
+
+### Crowds via BestTime (optional)
+
+Needs an API key — put it in the **repo-root `.env`** (gitignored; read only by the
+API, never shipped to the app):
+
+```bash
+BESTTIME_API_KEY_PRIVATE=pri_...     # in .env, then restart the API
+```
+
+`/venues/filter` returns venues from BestTime's **whole database** in the Kraków
+area (not just ones you added), so you usually get good coverage with **no
+seeding** — we query up to 500 venues (`VENUE_LIMIT` in `api/crowds.py`), which
+costs only a cheap query credit, not forecast credits. Central Kraków ends up ~90%
+covered; outer districts less, and those stretches are flagged "no crowd data".
+
+Only if you want to *add* specific venues that aren't in BestTime yet, seed them
+(this costs **2 forecast credits per venue**):
+
+```bash
+make seed-crowds      # etl/seed_besttime.py — venue searches, background-processed
+```
+
+Busyness is a **forecast** (typical for the current day/hour), not live — the UI
+labels it "typical for now". Without a key the crowds factor is hidden in the UI
+and rejected by the API.
+
 ## Mobile (Android, via Capacitor)
 
 The web app is also wrapped with [Capacitor](https://capacitorjs.com/) to run as a

@@ -11,6 +11,7 @@ export type Strength = "low" | "medium" | "high";
 export interface RouteOptions {
   noise?: boolean;
   light?: LightMode | null;
+  crowd?: boolean;
   strength?: Strength;
 }
 
@@ -21,6 +22,9 @@ export interface NoiseExposure {
 export interface LightExposure {
   lit_pct: number;
   unlit_pct: number;
+}
+export interface CrowdExposure {
+  busy_pct: number;
 }
 export interface FactorUncertainty {
   unknown_pct: number;
@@ -33,14 +37,15 @@ export interface RouteProperties {
     profile: string;
     noise?: boolean;
     light?: LightMode | null;
+    crowd?: boolean;
     strength?: Strength;
   };
   length_m: number;
   duration_min_estimate: number;
   edge_count: number;
   summary: string;
-  exposure: { noise?: NoiseExposure; light?: LightExposure };
-  uncertainty: { noise?: FactorUncertainty; light?: FactorUncertainty };
+  exposure: { noise?: NoiseExposure; light?: LightExposure; crowd?: CrowdExposure };
+  uncertainty: { noise?: FactorUncertainty; light?: FactorUncertainty; crowd?: FactorUncertainty };
   data_built_at: string;
 }
 
@@ -58,7 +63,7 @@ export interface HealthInfo {
   edge_count: number;
   data_built_at: string;
   profiles: string[];
-  factors: { noise: boolean; light: boolean };
+  factors: { noise: boolean; light: boolean; crowd: boolean };
 }
 
 export interface ApiError {
@@ -88,7 +93,7 @@ export async function getRoute(
   to: LatLon,
   opts: RouteOptions = {},
 ): Promise<RouteFeature> {
-  const active = opts.noise || (opts.light ?? null);
+  const active = opts.noise || opts.crowd || (opts.light ?? null);
   const params = new URLSearchParams({
     from: `${from.lat},${from.lon}`,
     to: `${to.lat},${to.lon}`,
@@ -97,6 +102,7 @@ export async function getRoute(
   if (active) {
     if (opts.noise) params.set("noise", "on");
     if (opts.light) params.set("light", opts.light);
+    if (opts.crowd) params.set("crowd", "on");
     params.set("strength", opts.strength ?? "medium");
   }
 

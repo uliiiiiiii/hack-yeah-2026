@@ -86,11 +86,29 @@ def _factor_light(edges: pd.DataFrame, mode: str) -> tuple[np.ndarray, np.ndarra
     return bad, known
 
 
+def _factor_crowd(edges: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """Return (badness 0..1, known) for current crowding (BestTime foot traffic).
+
+    Columns are populated at runtime by the crowd refresher (crowds.py); absent
+    before the first fetch, in which case crowding is unknown everywhere.
+    """
+    n = len(edges)
+    if "crowd_penalty" not in edges.columns:
+        return np.zeros(n), np.zeros(n, dtype=bool)
+    bad = pd.to_numeric(edges["crowd_penalty"], errors="coerce").to_numpy(dtype="float64")
+    known = (edges["crowd_known"] == True).to_numpy() if "crowd_known" in edges.columns \
+        else np.isfinite(bad)
+    bad = np.where(np.isfinite(bad), np.clip(bad, 0.0, 1.0), 0.0)
+    bad = np.where(known, bad, 0.0)  # unknown -> neutral, not quiet
+    return bad, known
+
+
 def sensory_cost(
     edges: pd.DataFrame,
     *,
     noise: bool = False,
     light: str | None = None,
+    crowd: bool = False,
     strength: str = "medium",
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """Combine the selected factors into a per-edge multiplier.
@@ -112,6 +130,11 @@ def sensory_cost(
         bad, known = _factor_light(edges, light)
         badness = badness + bad
         factor_known["light"] = known
+
+    if crowd:
+        bad, known = _factor_crowd(edges)
+        badness = badness + bad
+        factor_known["crowd"] = known
 
     multiplier = 1.0 + weight * badness
     return multiplier, factor_known
