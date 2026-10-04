@@ -281,6 +281,18 @@ The image bakes `nodes.parquet`, `edges.parquet`, `edge_sensory.parquet`,
 `build_info.json` and the seeded `places.db`; the heavy ETL-only files (186 MB
 graphml, raw noise shapefiles) are excluded by `.dockerignore`.
 
+## Data sources
+
+| Data | Source | Licence / notes |
+|---|---|---|
+| Walking graph | [OpenStreetMap](https://www.openstreetmap.org) (via osmnx) | ODbL — © OpenStreetMap contributors |
+| Map tiles | [OpenFreeMap](https://openfreemap.org) "liberty" style | OSM-derived, free, no key |
+| Road noise (LDWN/Lden) | [Mapy hałasu — MSIP Kraków](https://msip.krakow.pl/polecamy/332637,2224,komunikat,mapy_halasu_-_nowa_odslona_kompozycji_mapowej.html) — `data/raw_noise/halas_2022_imisja_dr_LDWN.*` | Kraków strategic acoustic map (2022) |
+| Street lighting | OpenStreetMap `lit` tag | ODbL |
+| Crowds / foot traffic | [BestTime.app](https://besttime.app) | API key (optional); foot-traffic forecast |
+| Place search | [Nominatim](https://nominatim.openstreetmap.org) | OSM data; usage policy respected via our proxy |
+| Quiet places (seed) | ["Ciche godziny" — lista miejsc](https://atypowadziewczyna.wordpress.com/2023/08/25/ciche-godziny-lista-miejsc-2/) | Blog compilation (Aug 2023); seeded via `api/seed_places.py` |
+
 ## Configuration
 
 See `.env.example` (root) and `web/.env.example`. All values have working

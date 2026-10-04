@@ -1,5 +1,8 @@
 """One-off: seed the quiet-places DB with the Kraków "quiet hours" list.
 
+Source: "Ciche godziny — lista miejsc"
+https://atypowadziewczyna.wordpress.com/2023/08/25/ciche-godziny-lista-miejsc-2/
+
 Only Kraków entries are seeded (the source list also covers other Polish cities
 and national shop chains, which are out of scope). Coordinates were resolved via
 OpenStreetMap Nominatim and are pinned here so re-running is deterministic.
