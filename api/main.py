@@ -24,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 import crowds
+import places
 import profiles
 from graph import Graph, GraphError
 from profiles import LIGHT_MODES, STRENGTH_WEIGHT, PROFILES, sensory_cost
@@ -169,6 +170,40 @@ def health():
             "venue_count": CROWD.venue_count,
             "last_error": CROWD.last_error,
         },
+    }
+
+
+PLACE_LANGS = {"en", "pl", "uk"}
+
+
+@app.get("/places")
+def search_places(q: str | None = None, lang: str = "en"):
+    """Place-name search, proxied to OpenStreetMap Nominatim (free, no API key).
+
+    Only user-submitted queries reach Nominatim — the web app never searches on
+    every keystroke, because Nominatim's usage policy forbids client-side
+    auto-complete over the public API. This proxy also throttles to one request
+    per second, caches results for an hour and sends the identifying User-Agent
+    the policy requires (see api/places.py).
+
+    Results are bounded to the Kraków viewbox so they match what we can route.
+    """
+    raw = (q or "").strip()
+    if len(raw) < places.MIN_QUERY_LEN:
+        return error(
+            400, "bad_request",
+            f"Type at least {places.MIN_QUERY_LEN} characters of a place name.",
+        )
+    try:
+        results = places.search(raw, lang=lang if lang in PLACE_LANGS else "en")
+    except places.GeocodeError as exc:
+        # Never masquerade as "no results" — say the service is unavailable.
+        return error(502, "place_search_unavailable", str(exc))
+    return {
+        "query": raw,
+        "source": "OpenStreetMap Nominatim",
+        "attribution": places.ATTRIBUTION,
+        "results": results,
     }
 
 

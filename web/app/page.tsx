@@ -20,9 +20,12 @@ import {
   type Settings,
 } from "@/lib/settings";
 import Sheet from "@/components/Sheet";
+import PlaceField from "@/components/PlaceField";
 import SettingsSheet from "@/components/SettingsSheet";
 import HelpSheet from "@/components/HelpSheet";
 import LegendSheet from "@/components/LegendSheet";
+import LayersSheet, { DEFAULT_LAYERS, type MapLayers } from "@/components/LayersSheet";
+import Onboarding, { type OnboardProfile } from "@/components/Onboarding";
 import OverwhelmFlow from "@/components/OverwhelmFlow";
 import {
   CheckIcon,
@@ -31,7 +34,6 @@ import {
   GearIcon,
   HeartPulseIcon,
   HelpIcon,
-  InfoIcon,
   LayersIcon,
   LegendIcon,
   LocateIcon,
@@ -43,7 +45,7 @@ import {
 import styles from "./page.module.css";
 
 const MAP_STYLE =
-  process.env.NEXT_PUBLIC_MAP_STYLE_URL ?? "https://tiles.openfreemap.org/styles/liberty";
+  process.env.NEXT_PUBLIC_MAP_STYLE_URL ?? "https://tiles.openfreemap.org/styles/bright";
 const KRAKOW_CENTER: [number, number] = [19.9372, 50.0614];
 const ROUTE_SRC = "route";
 const ALT_SRC = "route-alt";
@@ -52,6 +54,9 @@ const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 type Status = "idle" | "picking" | "loading" | "ready" | "error";
 type RouteId = "best" | "shortest";
+// collapsed = handle row only, half = the default half-open sheet (LAY-06),
+// expanded = nearly full height.
+type SheetState = "collapsed" | "half" | "expanded";
 
 interface Routes {
   best: RouteFeature | null;
@@ -144,24 +149,60 @@ export default function Page() {
   const [errorMsg, setErrorMsg] = useState("");
 
   // ---- UI chrome ----
-  const [expanded, setExpanded] = useState(false);
+  // Two independently collapsible panels float over a full-bleed map, so on a
+  // phone the map is always reachable and either panel can give it back space.
+  // LAY-06: the sheet changes size by button only, never by drag alone.
+  const [sheetState, setSheetState] = useState<SheetState>("collapsed");
+  // True while a finger/pointer is dragging the sheet handle (drawer gesture).
+  // Used to keep the body mounted while dragging up from the collapsed state.
+  const [dragging, setDragging] = useState(false);
+  const [topOpen, setTopOpen] = useState(true);
   const [showCompare, setShowCompare] = useState(false);
-  const [sheetOpen, setSheetOpen] = useState<"settings" | "help" | "legend" | "adjust" | null>(null);
+  const [sheetOpen, setSheetOpen] = useState<
+    "settings" | "help" | "legend" | "adjust" | "layers" | null
+  >(null);
   const [overwhelm, setOverwhelm] = useState(false);
-  const [walkNote, setWalkNote] = useState("");
   const [avail, setAvail] = useState({ noise: true, light: true, crowd: false });
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  // Which overlays are drawn over the map (display only — never changes the route).
+  const [layers, setLayers] = useState<MapLayers>(DEFAULT_LAYERS);
+  const patchLayers = useCallback(
+    (patch: Partial<MapLayers>) => setLayers((prev) => ({ ...prev, ...patch })),
+    [],
+  );
 
   // Trigger refs so sheets can return focus (LAY-06).
   const settingsBtn = useRef<HTMLButtonElement | null>(null);
   const helpBtn = useRef<HTMLButtonElement | null>(null);
   const legendBtn = useRef<HTMLButtonElement | null>(null);
+  const layersBtn = useRef<HTMLButtonElement | null>(null);
   const adjustBtn = useRef<HTMLButtonElement | null>(null);
   const overwhelmBtn = useRef<HTMLButtonElement | null>(null);
+  const topToggleBtn = useRef<HTMLButtonElement | null>(null);
+  const sheetBtn = useRef<HTMLButtonElement | null>(null);
+  const sheetEl = useRef<HTMLElement | null>(null);
+  const shellEl = useRef<HTMLDivElement | null>(null);
+
+  // Panel-collapse bookkeeping. The planning panel folds away once, after the
+  // first route of the session, so the map gets the screen. It never does so
+  // again if the user has touched the panel themselves (P4: nothing changes
+  // unless asked), and one tap brings it straight back.
+  const userToggledTop = useRef(false);
+  const autoCollapsedTop = useRef(false);
+
+  // Sheet bookkeeping: it starts collapsed, then opens to half once, when the
+  // first routes land — unless the user has already moved it themselves (by
+  // button or by dragging the drawer). After that it never moves on its own.
+  const userToggledSheet = useRef(false);
+  const autoOpenedSheet = useRef(false);
+  // Live drawer-drag state (imperative, so a drag doesn't re-render every frame).
+  const drag = useRef<{ startY: number; startH: number; active: boolean; moved: boolean } | null>(null);
 
   // Mirror live trip inputs so the stable map-click handler reads current values.
-  const opts = useRef({ noise, light, crowd, settings, whenMode, leaveAt });
+  const opts = useRef({ noise, light, crowd, settings, whenMode, leaveAt, layers });
   useEffect(() => {
-    opts.current = { noise, light, crowd, settings, whenMode, leaveAt };
+    opts.current = { noise, light, crowd, settings, whenMode, leaveAt, layers };
   });
 
   const active = noise || crowd || light !== null;
@@ -176,11 +217,28 @@ export default function Page() {
     setNoise(s.profile.noise);
     setLight(s.profile.light);
     setCrowd(s.profile.crowd);
+    if (!s.onboarded) setShowOnboarding(true); // first-run setup (F1)
     /* eslint-enable react-hooks/set-state-in-effect */
     getHealth()
       .then((h) => setAvail(h.factors))
       .catch(() => {});
   }, []);
+
+  // ----- Onboarding (F1) -----
+  const finishOnboarding = useCallback(
+    (profile?: OnboardProfile) => {
+      setShowOnboarding(false);
+      if (profile) {
+        setNoise(profile.noise);
+        setLight(profile.light);
+        setCrowd(profile.crowd);
+        patchSettings({ onboarded: true, profile });
+      } else {
+        patchSettings({ onboarded: true });
+      }
+    },
+    [patchSettings],
+  );
 
   // ----- Map drawing -----
   const drawSelected = useCallback(() => {
@@ -216,9 +274,10 @@ export default function Page() {
     } as GeoJSON.FeatureCollection);
 
     // "?" markers at the midpoint of each no-data stretch (UNC-02 fourth cue).
+    // Suppressed when the no-data layer is switched off in Map layers.
     qMarkers.current.forEach((m) => m.remove());
     qMarkers.current = [];
-    for (const seg of sel?.uncertain_segments ?? []) {
+    for (const seg of o.layers.noData ? sel?.uncertain_segments ?? [] : []) {
       if (seg.length === 0) continue;
       const mid = seg[Math.floor(seg.length / 2)] as [number, number];
       qMarkers.current.push(new maplibregl.Marker({ element: qMarkerEl() }).setLngLat(mid).addTo(map));
@@ -246,6 +305,18 @@ export default function Page() {
   useEffect(() => {
     drawSelected();
   }, [drawSelected]);
+
+  // ----- Map layer visibility (the "Layers" control) -----
+  // Display-only: toggles which overlays are drawn, never the route itself.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map?.getLayer("route-uncertain-line")) return;
+    const vis = (on: boolean) => (on ? "visible" : "none");
+    map.setLayoutProperty("route-uncertain-line", "visibility", vis(layers.noData));
+    map.setLayoutProperty("route-alt-line", "visibility", vis(layers.altRoute));
+    // Re-run the draw so the "?" markers appear or disappear with the dashes.
+    drawSelected();
+  }, [layers, drawSelected]);
 
   // ----- Routing -----
   const requestRoutes = useCallback(
@@ -278,6 +349,19 @@ export default function Page() {
         }
         fittedKey.current = ""; // force a fresh fit
         setStatus("ready");
+        // Planning is done, so hand the screen back to the map — once per
+        // session, and never if the user has been using the panel themselves.
+        if (!autoCollapsedTop.current && !userToggledTop.current) {
+          autoCollapsedTop.current = true;
+          setTopOpen(false);
+        }
+        // The sheet starts collapsed; lift it to half the first time results
+        // land so they are actually seen — but only if the user hasn't already
+        // moved it themselves (button or drawer drag).
+        if (!autoOpenedSheet.current && !userToggledSheet.current) {
+          autoOpenedSheet.current = true;
+          setSheetState("half");
+        }
       } catch (err) {
         setRoutes({ best: null, shortest: null });
         setStatus("error");
@@ -344,6 +428,44 @@ export default function Page() {
     if (startPt.current && endPt.current) void requestRoutes(startPt.current, endPt.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [noise, light, crowd, whenMode, leaveAt, settings.strictness]);
+
+  // The overwhelm pill and the map controls are anchored with calc() against
+  // --sheet-offset. In the collapsed and half states the sheet has a fixed CSS
+  // height, so that offset is exact. Expanded is content-height, so the offset
+  // would drift away from the real card and leave the pill floating mid-map.
+  // Publishing the measured height back as --sheet-measured keeps every anchor
+  // glued to the card's actual top edge in all three states.
+  useEffect(() => {
+    const sheet = sheetEl.current;
+    const shell = shellEl.current;
+    if (!sheet || !shell) return;
+    const publish = () => {
+      shell.style.setProperty("--sheet-measured", `${sheet.offsetHeight}px`);
+    };
+    publish();
+    const ro = new ResizeObserver(publish);
+    ro.observe(sheet);
+    window.addEventListener("resize", publish);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", publish);
+    };
+  }, []);
+
+  // Escape dismisses the expanded sheet, matching the settings dialog. Only when
+  // the sheet is the expanded one — a modal sheet has its own handler, and the
+  // two must not both react to one key press.
+  useEffect(() => {
+    if (sheetState !== "expanded" || sheetOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setSheetState("collapsed");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sheetState, sheetOpen]);
 
   // ----- Map init -----
   useEffect(() => {
@@ -479,6 +601,88 @@ export default function Page() {
     setDirty(false);
   };
 
+  // ---- Panel controls ----
+  // One button cycles the sheet through its three sizes (LAY-06). The label
+  // always names what the next press will do, so it never has to be guessed.
+  const SHEET_CYCLE: Record<SheetState, SheetState> = {
+    collapsed: "half",
+    half: "expanded",
+    expanded: "collapsed",
+  };
+  const SHEET_ACTION_LABEL: Record<SheetState, string> = {
+    collapsed: "Show results",
+    half: "Expand",
+    expanded: "Hide",
+  };
+  const cycleSheet = () => {
+    userToggledSheet.current = true;
+    setSheetState((s) => SHEET_CYCLE[s]);
+    // LAY-06: focus stays on the button that changed the sheet's size.
+    sheetBtn.current?.focus();
+  };
+
+  // ---- Drawer drag (an enhancement over the button, not a replacement — the
+  // Expand/Hide button stays for keyboard and assistive tech, so LAY-06 holds).
+  // Dragging the handle follows the finger, then snaps to the nearest of the
+  // three sizes on release. Works with mouse and touch via Pointer Events. ----
+  const snapHeights = () => {
+    const vh = window.innerHeight;
+    const mobile = window.matchMedia("(max-width: 480px)").matches;
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    return {
+      collapsed: 3.9 * rem,
+      half: vh * (mobile ? 0.28 : 0.3),
+      expanded: vh * (mobile ? 0.8 : 0.72),
+    };
+  };
+
+  const onHandlePointerDown = (e: React.PointerEvent) => {
+    // A press that starts on the toggle button is a click, not a drag.
+    if ((e.target as HTMLElement).closest("button")) return;
+    const sheet = sheetEl.current;
+    if (!sheet) return;
+    drag.current = { startY: e.clientY, startH: sheet.offsetHeight, active: true, moved: false };
+    setDragging(true);
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const onHandlePointerMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    const sheet = sheetEl.current;
+    if (!d?.active || !sheet) return;
+    const snaps = snapHeights();
+    const h = Math.max(snaps.collapsed, Math.min(snaps.expanded, d.startH + (d.startY - e.clientY)));
+    if (Math.abs(e.clientY - d.startY) > 4) d.moved = true;
+    sheet.style.height = `${h}px`;
+  };
+
+  const endHandleDrag = (e: React.PointerEvent) => {
+    const d = drag.current;
+    const sheet = sheetEl.current;
+    drag.current = null;
+    setDragging(false);
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    if (!d || !sheet) return;
+    const h = sheet.offsetHeight;
+    sheet.style.height = ""; // hand height back to CSS for the chosen state
+    if (!d.moved) return; // a tap, not a drag — let the button's onClick handle it
+    const snaps = snapHeights();
+    const nearest = (["collapsed", "half", "expanded"] as SheetState[]).reduce((best, s) =>
+      Math.abs(snaps[s] - h) < Math.abs(snaps[best] - h) ? s : best,
+    );
+    userToggledSheet.current = true;
+    setSheetState(nearest);
+  };
+
+  const toggleTop = (next: boolean) => {
+    userToggledTop.current = true;
+    setTopOpen(next);
+  };
+
+  const endpointSummary = `${startText.trim() || "Your location"} to ${
+    endText.trim() || "destination"
+  }`;
+
   const reset = () => {
     startMarker.current?.remove();
     endMarker.current?.remove();
@@ -504,6 +708,7 @@ export default function Page() {
     setLight(null);
     setCrowd(false);
     setSheetOpen(null);
+    setShowOnboarding(!d.onboarded); // a cleared device is a first run again (F1)
   };
 
   // ----- Derived: time label + cards -----
@@ -565,9 +770,6 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes, timeLabel, noise, light, crowd]);
 
-  const selCard = cards.find((c) => c.id === selected) ?? cards[0];
-  const noDataStretches = selCard?.feature.uncertain_segments.length ?? 0;
-
   // Status line copy (AT-02 live region).
   const statusText =
     status === "error"
@@ -580,49 +782,158 @@ export default function Page() {
             ? "Start set. Tap the map for your destination, or type it above."
             : "Tap the map to set your start, or type two points above.";
 
-  const flyToSegment = (coords: [number, number][]) => {
-    const map = mapRef.current;
-    if (!map || coords.length === 0) return;
-    const b = coords.reduce(
-      (acc, c) => acc.extend(c),
-      new maplibregl.LngLatBounds(coords[0], coords[0]),
-    );
-    map.fitBounds(b, { padding: 80, maxZoom: 16, animate: !motionReduced(settings) });
-  };
-
   return (
-    <div className={styles.shell}>
+    <div ref={shellEl} className={styles.shell} data-sheet={sheetState} data-top={topOpen ? "open" : "closed"}>
       <a className="skip-link" href="#routes">Skip to routes</a>
 
-      {/* ---- Top bar ---- */}
-      <header className={styles.topbar}>
-        <div className={styles.fields}>
-          <div className={styles.field}>
-            <label htmlFor="start-input">Start</label>
-            <input
-              id="start-input"
-              type="text"
-              inputMode="decimal"
-              autoComplete="off"
-              placeholder="Your location or lat, lon"
-              value={startText}
-              onChange={(e) => setStartText(e.target.value)}
-            />
+      {/* ---- Top stack: collapsible planning panel, floating over the map ---- */}
+      <div className={styles.topStack}>
+        {!topOpen ? (
+          <div className={styles.topBarCollapsed}>
+            <button
+              ref={topToggleBtn}
+              type="button"
+              className={styles.mapBtn}
+              onClick={() => toggleTop(true)}
+              aria-expanded={false}
+              aria-controls="plan-fields"
+              aria-label="Show start and destination"
+            >
+              <ChevronDownIcon />
+            </button>
+            <button
+              type="button"
+              className={styles.topSummary}
+              onClick={() => toggleTop(true)}
+            >
+              <span className={styles.topSummaryText}>{endpointSummary}</span>
+            </button>
           </div>
-          <div className={styles.field}>
-            <label htmlFor="end-input">Destination</label>
-            <input
-              id="end-input"
-              type="text"
-              inputMode="decimal"
-              autoComplete="off"
-              placeholder="Tap the map or type lat, lon"
-              value={endText}
-              onChange={(e) => setEndText(e.target.value)}
-            />
-          </div>
+        ) : (
+          <>
+            <div className={styles.panel} id="plan-fields">
+              <div className={styles.fieldsRow}>
+                <div className={styles.fields}>
+                  <PlaceField
+                    label="Start"
+                    placeholder="Your location, a place name or lat, lon"
+                    value={startText}
+                    onTextChange={setStartText}
+                    onSelect={(p) => {
+                      setEndpoint("start", p);
+                      setStatus("picking");
+                    }}
+                    language={settings.language}
+                  />
+                  <PlaceField
+                    label="Destination"
+                    placeholder="Tap the map, a place name or lat, lon"
+                    value={endText}
+                    onTextChange={setEndText}
+                    onSelect={(p) => {
+                      setEndpoint("end", p);
+                      if (startPt.current) void requestRoutes(startPt.current, p);
+                    }}
+                    language={settings.language}
+                  />
+                </div>
+              </div>
+              <div className={styles.swapRow}>
+                <button type="button" className={styles.btn} onClick={swap}>
+                  <SwapIcon />
+                  Swap
+                </button>
+                <button
+                  type="button"
+                  className={styles.btn}
+                  onClick={() => toggleTop(false)}
+                  aria-expanded
+                  aria-controls="plan-fields"
+                >
+                  <ChevronUpIcon />
+                  Hide fields
+                </button>
+              </div>
+              {/* When row: Now / Leave at (FAC-04). Kept in the SAME card as the
+                  fields — a second floating card cost another padding block and
+                  gap, which is map we did not have to give up. */}
+              <div className={styles.whenRow}>
+                <span className={styles.whenLabel} id="when-label">When</span>
+                <span className={styles.segmented} role="radiogroup" aria-labelledby="when-label">
+                  <button
+                    type="button"
+                    aria-pressed={whenMode === "now"}
+                    onClick={() => setWhenMode("now")}
+                  >
+                    {whenMode === "now" && <CheckIcon className={styles.check} />}
+                    Now
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={whenMode === "leave"}
+                    onClick={() => setWhenMode("leave")}
+                  >
+                    {whenMode === "leave" && <CheckIcon className={styles.check} />}
+                    Leave at
+                  </button>
+                </span>
+                {whenMode === "leave" && (
+                  <input
+                    type="datetime-local"
+                    className={styles.btn}
+                    aria-label="Leave at time"
+                    value={leaveAt}
+                    onChange={(e) => setLeaveAt(e.target.value)}
+                    style={{ padding: "0 0.5rem" }}
+                  />
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ---- Map: full-bleed, behind every panel ---- */}
+      <div className={styles.mapWrap}>
+        <div
+          ref={mapContainer}
+          className={styles.map}
+          role="application"
+          aria-label="Map of Kraków. Tap to set start and destination."
+        />
+
+        <div className={`${styles.mapControls} ${styles.right}`}>
+          <button type="button" className={styles.mapBtn} onClick={() => zoom(1)} aria-label="Zoom in">
+            <PlusIcon />
+          </button>
+          <button type="button" className={styles.mapBtn} onClick={() => zoom(-1)} aria-label="Zoom out">
+            <MinusIcon />
+          </button>
+          <button type="button" className={styles.mapBtn} onClick={locate} aria-label="Use my location">
+            <LocateIcon />
+          </button>
         </div>
-        <div className={styles.topActions}>
+        <div className={`${styles.mapControls} ${styles.left}`}>
+          <button
+            ref={legendBtn}
+            type="button"
+            className={`${styles.mapBtn} ${styles.mapBtnWide}`}
+            onClick={() => setSheetOpen("legend")}
+          >
+            <LegendIcon />
+            Legend
+          </button>
+          <button
+            ref={layersBtn}
+            type="button"
+            className={`${styles.mapBtn} ${styles.mapBtnWide}`}
+            onClick={() => setSheetOpen("layers")}
+            aria-haspopup="dialog"
+            aria-label="Map layers"
+          >
+            <LayersIcon />
+            Layers
+          </button>
           <button
             ref={settingsBtn}
             type="button"
@@ -642,90 +953,6 @@ export default function Page() {
             Help
           </button>
         </div>
-        <div className={styles.swapRow}>
-          <button type="button" className={styles.btn} onClick={swap}>
-            <SwapIcon />
-            Swap start and destination
-          </button>
-        </div>
-      </header>
-
-      {/* ---- When row ---- */}
-      <div className={styles.whenRow}>
-        <span className={styles.whenLabel} id="when-label">When</span>
-        <span className={styles.segmented} role="radiogroup" aria-labelledby="when-label">
-          <button
-            type="button"
-            aria-pressed={whenMode === "now"}
-            onClick={() => setWhenMode("now")}
-          >
-            {whenMode === "now" && <CheckIcon className={styles.check} />}
-            Now
-          </button>
-          <button
-            type="button"
-            aria-pressed={whenMode === "leave"}
-            onClick={() => setWhenMode("leave")}
-          >
-            {whenMode === "leave" && <CheckIcon className={styles.check} />}
-            Leave at
-          </button>
-        </span>
-        {whenMode === "leave" && (
-          <input
-            type="datetime-local"
-            className={styles.btn}
-            aria-label="Leave at time"
-            value={leaveAt}
-            onChange={(e) => setLeaveAt(e.target.value)}
-            style={{ padding: "0 0.5rem" }}
-          />
-        )}
-      </div>
-
-      {/* ---- Map ---- */}
-      <div className={styles.mapWrap}>
-        <div
-          ref={mapContainer}
-          className={styles.map}
-          role="application"
-          aria-label="Map of Kraków. Tap to set start and destination."
-        />
-
-        <div className={`${styles.mapControls} ${styles.right}`}>
-          <button type="button" className={styles.mapBtn} onClick={() => zoom(1)} aria-label="Zoom in">
-            <PlusIcon />
-          </button>
-          <button type="button" className={styles.mapBtn} onClick={() => zoom(-1)} aria-label="Zoom out">
-            <MinusIcon />
-          </button>
-        </div>
-        <div className={`${styles.mapControls} ${styles.locate}`}>
-          <button type="button" className={styles.mapBtn} onClick={locate} aria-label="Use my location">
-            <LocateIcon />
-          </button>
-        </div>
-        <div className={`${styles.mapControls} ${styles.left}`}>
-          <button
-            ref={legendBtn}
-            type="button"
-            className={`${styles.mapBtn} ${styles.mapBtnWide}`}
-            onClick={() => setSheetOpen("legend")}
-          >
-            <LegendIcon />
-            Legend
-          </button>
-          <button
-            type="button"
-            className={`${styles.mapBtn} ${styles.mapBtnWide}`}
-            aria-pressed={true}
-            aria-label="Layers: no-data stretches shown"
-            title="No-data stretches are shown"
-          >
-            <LayersIcon />
-            Layers
-          </button>
-        </div>
 
         <div className={styles.overwhelmWrap}>
           <button
@@ -740,22 +967,50 @@ export default function Page() {
         </div>
       </div>
 
-      {/* ---- Bottom sheet ---- */}
-      <section className={styles.sheet} aria-label="Plan a walk" id="routes">
-        <div className={styles.sheetHandle}>
-          <h1 className={styles.sheetTitle}>Plan a walk</h1>
+      {/* ---- Bottom sheet: collapsible by button only (LAY-06) ----
+          Expanded, it takes the settings dialog's treatment: a dimmed backdrop
+          and a floating card sized to its content, so it stops being a
+          full-bleed panel with dead space under the last row. */}
+      {sheetState === "expanded" && (
+        <div
+          className={styles.sheetScrim}
+          aria-hidden="true"
+          onMouseDown={() => setSheetState("collapsed")}
+        />
+      )}
+      <section ref={sheetEl} className={styles.sheet} aria-label="Plan a walk" id="routes">
+        <div
+          className={styles.sheetHandle}
+          onPointerDown={onHandlePointerDown}
+          onPointerMove={onHandlePointerMove}
+          onPointerUp={endHandleDrag}
+          onPointerCancel={endHandleDrag}
+        >
+          <span className={styles.sheetGrabber} aria-hidden="true" />
+          {/* When collapsed the body is gone, so the status replaces the title —
+              otherwise a collapsed sheet looks inert (AT-02). */}
+          {sheetState === "collapsed" && status !== "idle" ? (
+            <span className={styles.sheetPeek} role="status" aria-live="polite">
+              {statusText}
+            </span>
+          ) : (
+            <h1 className={styles.sheetTitle}>Plan a walk</h1>
+          )}
           <button
+            ref={sheetBtn}
             type="button"
-            className={styles.btn}
-            onClick={() => setExpanded((v) => !v)}
-            aria-expanded={expanded}
+            className={`${styles.btn} ${styles.sheetToggle}`}
+            onClick={cycleSheet}
+            aria-expanded={sheetState !== "collapsed"}
+            aria-controls="sheet-body"
           >
-            {expanded ? <ChevronDownIcon /> : <ChevronUpIcon />}
-            {expanded ? "Collapse" : "Expand"}
+            {sheetState === "expanded" ? <ChevronDownIcon /> : <ChevronUpIcon />}
+            {SHEET_ACTION_LABEL[sheetState]}
           </button>
         </div>
 
-        <div className={styles.sheetBody} style={{ maxHeight: expanded ? "72dvh" : "42dvh" }}>
+        {(sheetState !== "collapsed" || dragging) && (
+        <div className={styles.sheetBody} id="sheet-body">
           <div className={styles.sheetInner}>
             {/* Profile row */}
             <div className={styles.profileRow}>
@@ -943,48 +1198,6 @@ export default function Page() {
               </div>
             )}
 
-            {/* Stretches with no data (MAP-01 non-visual access) */}
-            {selCard && noDataStretches > 0 && (
-              <details style={{ marginTop: "0.7rem" }}>
-                <summary style={{ cursor: "pointer", fontWeight: 600 }}>
-                  Stretches with no data ({noDataStretches})
-                </summary>
-                <ul style={{ listStyle: "none", padding: 0, margin: "0.4rem 0 0" }}>
-                  {selCard.feature.uncertain_segments.map((seg, i) => (
-                    <li key={i} style={{ margin: "0.2rem 0" }}>
-                      <button
-                        type="button"
-                        className={styles.btn}
-                        style={{ width: "100%", justifyContent: "flex-start" }}
-                        onClick={() => flyToSegment(seg)}
-                      >
-                        <InfoIcon />
-                        Stretch {i + 1}: no data for your factors here
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            )}
-
-            {/* Primary action. Turn-by-turn guidance (F5) is not built in this
-                prototype, so we say so plainly rather than open a dead screen. */}
-            <button
-              type="button"
-              className={styles.primary}
-              disabled={!selCard}
-              onClick={() =>
-                setWalkNote("Turn-by-turn guidance is coming soon. For now, follow your route on the map.")
-              }
-            >
-              Start walking
-            </button>
-            {walkNote && (
-              <p className={styles.hint} role="status" aria-live="polite" style={{ marginTop: "0.5rem" }}>
-                {walkNote}
-              </p>
-            )}
-
             {/* Manual entry fallback (INP-06 alternative) */}
             <form onSubmit={onSubmit} style={{ marginTop: "0.8rem" }}>
               <div className={styles.row}>
@@ -994,6 +1207,7 @@ export default function Page() {
             </form>
           </div>
         </div>
+        )}
       </section>
 
       {/* ---- Sheets & flows ---- */}
@@ -1021,6 +1235,21 @@ export default function Page() {
         open={sheetOpen === "legend"}
         onClose={() => setSheetOpen(null)}
         returnFocusRef={legendBtn}
+      />
+      <LayersSheet
+        open={sheetOpen === "layers"}
+        onClose={() => setSheetOpen(null)}
+        returnFocusRef={layersBtn}
+        layers={layers}
+        onChange={patchLayers}
+      />
+
+      {/* First-run setup (F1): ask once which things to avoid, save as default. */}
+      <Onboarding
+        open={showOnboarding}
+        availCrowd={avail.crowd}
+        onSkip={() => finishOnboarding()}
+        onSave={(p) => finishOnboarding(p)}
       />
 
       {/* Adjust (strictness / max extra time / prefer-more-data) */}

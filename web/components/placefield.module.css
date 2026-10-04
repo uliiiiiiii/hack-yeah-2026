@@ -1,0 +1,138 @@
+/* Place-name search field (INP-01). A visible label, a combobox input with an
+   explicit Find button (search is submitted, never typed-through — see
+   lib/geocode.ts for why), and a listbox of suggestions.
+
+   This file was missing entirely, which is why the component was never wired
+   into the page: it could not compile without it. */
+
+.field {
+  position: relative;
+  display: grid;
+  min-width: 0;
+}
+
+.field > label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 0.15rem;
+}
+
+.inputWrap {
+  display: flex;
+  gap: 0.35rem;
+  align-items: stretch;
+}
+
+.inputWrap input {
+  font: inherit;
+  font-size: 1rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 48px;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* The Find button is a real 44px target: switch access and touch both need it,
+   and it is the only way to search without a keyboard (MAP-02, AT-04). */
+.find {
+  flex: none;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0 0.7rem;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.find svg { width: 18px; height: 18px; }
+.find:disabled { opacity: 0.55; }
+
+/* "Searching…" is static text, never a spinner (MOT-05). */
+.busy {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  padding: 0 0.3rem;
+}
+
+.list {
+  position: absolute;
+  z-index: 40;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 0.25rem 0 0;
+  padding: 0.25rem;
+  list-style: none;
+  max-height: 15rem;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+
+.option {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 7px;
+  cursor: pointer;
+  min-height: 44px;
+}
+.optionActive,
+.option:hover {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.optLabel { font-weight: 600; }
+.optDetail {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+/* Visible feedback under the input. Muted, not alarming: a failed lookup is a
+   dead end, not an emergency (MOT-02, calm by default). */
+.error,
+.noResults {
+  margin: 0.3rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
+.error { color: var(--error); }
+.noResults { color: var(--text-muted); }
+
+/* ODbL attribution for OpenStreetMap data must be visible near the results. */
+.attribution {
+  margin-top: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 360px) {
+  .find span { display: none; }
+  .find { padding: 0 0.6rem; }
+}

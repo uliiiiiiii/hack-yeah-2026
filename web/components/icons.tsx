@@ -101,6 +101,13 @@ export const CloseIcon = (p: P) => (
   <svg {...base(p)}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
 );
 
+export const SearchIcon = (p: P) => (
+  <svg {...base(p)}>
+    <circle cx="11" cy="11" r="7" />
+    <line x1="16" y1="16" x2="21" y2="21" />
+  </svg>
+);
+
 export const ChevronUpIcon = (p: P) => (
   <svg {...base(p)}><path d="m6 15 6-6 6 6" /></svg>
 );

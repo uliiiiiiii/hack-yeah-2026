@@ -62,12 +62,14 @@ export default function Sheet({
   useEffect(() => {
     if (!open) return;
     const panel = panelRef.current;
+    // Capture the trigger now: by cleanup time the ref may point elsewhere, and
+    // the right element to restore focus to is the one that opened this dialog.
+    const restoreTo = returnFocusRef?.current ?? null;
     // Move focus into the dialog (its heading) on open.
     const heading = panel?.querySelector<HTMLElement>("[data-autofocus]") ?? panel;
     heading?.focus();
     return () => {
-      // Restore focus to the trigger on close.
-      returnFocusRef?.current?.focus?.();
+      restoreTo?.focus?.();
     };
   }, [open, returnFocusRef]);
 

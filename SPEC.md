@@ -1,5 +1,30 @@
 # Project setup spec: walking-route planner for Kraków (initial skeleton)
 
+> **SUPERSEDED — do not implement from this file.**
+>
+> This was the phase-1 skeleton spec (3 Oct 2026). It is kept for history only.
+> **The source of truth is [`design-requirements.md`](design-requirements.md)** —
+> the full product spec: 143 requirement rows, 19 user flows, WCAG 2.2 AA target.
+> When the two disagree, `design-requirements.md` wins.
+>
+> What moved on since this file was written:
+>
+> | This file says | Reality |
+> |---|---|
+> | Noise, light and crowd data are "out of scope for this phase" | All three are implemented (`api/profiles.py`, `etl/build_noise.py`, `api/crowds.py`) |
+> | One profile: `shortest` | Plus `sensory`, with noise / light / crowds as pluggable factors |
+> | "No localStorage use in this phase" (web §9) | Superseded by PER-04 / PRV-05: the profile and settings are stored **on device only**, never synced |
+> | Only a `shortest` route | A shortest reference is always shown alongside the profile match (FAC-07) |
+> | Click two points on the map | Plus place-name search, swap, locate and a When (Now / Leave at) selector |
+> | 422 when a point is >500 m from a node | Unchanged, and still the behaviour |
+>
+> Not in either file yet, and therefore not promised anywhere: first-run
+> onboarding (F1), the segment detail sheet (F4), turn-by-turn guidance (F5),
+> reporting (F8), the business portal (F14–F18) and accuracy votes (F19). See
+> the README's "Deferred" list for the current status of each.
+>
+> The original phase-1 content follows unchanged.
+
 ## Goal
 
 Build a working skeleton: click two points on a map of Kraków, get a walking route back from our own API. Routing uses an OpenStreetMap walking graph. Edge costs must be pluggable, because the weighting (noise vs physical accessibility) is not decided yet.

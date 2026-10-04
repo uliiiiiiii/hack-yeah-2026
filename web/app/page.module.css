@@ -1,92 +1,185 @@
-/* Main-screen layout (design-requirements §4) and the shared UI pieces.
-   Reading order top→bottom: top bar, When row, map (last, with a skip link). */
+/* Main-screen layout (design-requirements §4).
+
+   Layout strategy: the map is the full-bleed background and the top panel and
+   the bottom sheet float *over* it. Collapsing either one gives the map the
+   space back, which is the point on a phone. DOM order stays
+   topStack -> map -> sheet, so the reading order still puts the map last,
+   behind the skip link (MAP-04).
+
+   The sheet's height and the offset that the map controls and the overwhelm
+   pill use are both driven by --sheet-measured, the card's real height published
+   from page.tsx, so they can never drift apart — including in the expanded
+   state, where the card is content-height rather than a fixed dvh. */
 
 .shell {
-  position: relative;
-  width: 100%;
-  height: 100dvh;
+  position: fixed;
+  inset: 0;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
+
+  /* Sheet heights. The collapsed height is the handle row alone. */
+  --sheet-collapsed: 3.9rem;
+  --sheet-half: 30dvh;
+  --sheet-expanded: 72dvh;
+  --sheet-offset: var(--sheet-half);
+  /* Real card height, published from page.tsx by a ResizeObserver. Falls back to
+     --sheet-offset until the first measurement lands, so first paint is correct. */
+  --sheet-measured: var(--sheet-offset);
+
+  /* Space the floating pill needs above the sheet, plus its own gap. */
+  --pill-block: 4.7rem;
+  /* Height of the map-control cluster. The top panel is capped against this so
+     it can never grow down over the zoom buttons. */
+  --controls-block: 6.9rem;
+  --pad-x: 0.6rem;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+.shell[data-sheet="collapsed"] { --sheet-offset: var(--sheet-collapsed); }
+.shell[data-sheet="half"] { --sheet-offset: var(--sheet-half); }
+.shell[data-sheet="expanded"] { --sheet-offset: var(--sheet-expanded); }
+
+/* Floating card used by the top stack panels. */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  padding: 0.55rem 0.7rem;
 }
 
-/* ---- Top bar: fields + Swap, with Settings/Help top-right (LAY-02, LAY-04) ---- */
-.topbar {
-  position: relative;
+/* ---- Top stack: fields + Settings/Help + Swap, then the When row ----
+   z-index sits BELOW the sheet (see .sheet), and the max-height stops the
+   panel from ever growing down into the sheet's space. Without both, a tall
+   panel draws over the route cards and the sheet's first row is unreachable. */
+.topStack {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
   z-index: 20;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  padding: 0.6rem 0.75rem;
+  padding: calc(var(--safe-t) + 0.5rem) var(--pad-x) 0.5rem;
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.5rem 0.75rem;
-  align-items: end;
+  /* minmax(0, 1fr): without it the implicit track is content-sized, so the
+     collapsed bar's title + Settings/Help push the row wider than the viewport
+     and Settings gets clipped off the right edge. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.45rem;
+  align-content: start;
+  max-width: 30rem;
+  margin: 0 auto;
+  max-height: calc(100dvh - var(--sheet-measured) - var(--pill-block) - var(--controls-block));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Collapsed bar: one row with the endpoint summary and the same
+   Settings/Help in the same relative place (LAY-04). */
+.topBarCollapsed {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  padding: 0.35rem 0.45rem;
+  min-height: 48px;
+}
+.topSummary {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  padding: 0.4rem 0.3rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.topSummaryText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topSummaryText em { font-style: normal; color: var(--text-muted); font-weight: 500; }
+
+/* Open top bar: a compact panel so the map keeps as much height as possible —
+   the whole point is that it can be collapsed for more map.
+   minmax(0, 1fr) keeps the grid track from being sized by its content. */
+.fieldsRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: start;
 }
 .fields {
   display: grid;
-  gap: 0.4rem;
+  gap: 0.5rem;
   min-width: 0;
-}
-.topActions {
-  display: flex;
-  gap: 0.4rem;
-  align-self: start;
 }
 .field label {
   display: block;
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-muted);
-  margin-bottom: 0.15rem;
+  margin-bottom: 0.2rem;
 }
 .field input {
   font: inherit;
+  font-size: 1rem;
   width: 100%;
-  min-height: 44px;
-  padding: 0.4rem 0.55rem;
+  min-height: 48px;
+  padding: 0.5rem 0.7rem;
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--bg);
   color: var(--text);
 }
 .swapRow {
-  grid-column: 1 / -1;
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
   align-items: center;
+  margin-top: 0.45rem;
 }
 
-/* ---- When row: Now / Leave at segmented control (FAC-04) ---- */
+
+/* ---- When row: Now / Leave at segmented control (FAC-04).
+   Inside the fields card, separated by a hairline rather than a whole
+   second floating panel. ---- */
 .whenRow {
-  position: relative;
-  z-index: 20;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  padding: 0.4rem 0.75rem;
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.5rem;
   flex-wrap: wrap;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
 }
 .whenLabel {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 600;
   color: var(--text-muted);
 }
 
-/* ---- Map ---- */
+/* ---- Map: full-bleed background, under every panel ---- */
 .mapWrap {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
 }
 .map {
   position: absolute;
   inset: 0;
 }
 
-/* Map controls — all ≥44px, 8px gaps (MAP-03). */
+/* Map controls — all ≥44px, 8px gaps (MAP-03). They sit above the floating
+   overwhelm pill, which in turn sits above the sheet, so nothing overlaps at
+   any sheet height or screen width. */
 .mapControls {
   position: absolute;
   display: flex;
@@ -94,9 +187,15 @@
   gap: 8px;
   z-index: 15;
 }
-.mapControls.right { right: 10px; top: 10px; }
-.mapControls.locate { right: 10px; bottom: 76px; }
-.mapControls.left { left: 10px; bottom: 10px; }
+.mapControls.right { right: var(--pad-x); bottom: calc(var(--sheet-measured) + var(--pill-block)); }
+.mapControls.left { left: var(--pad-x); bottom: calc(var(--sheet-measured) + var(--pill-block)); }
+/* Zoom +/− sit side by side with Locate beneath, so the right-hand cluster is
+   two rows tall instead of three. On a 380 px phone that is ~52 px of map back. */
+.shell .mapControls.right {
+  display: grid;
+  grid-template-columns: repeat(2, 44px);
+  align-items: center;
+}
 .mapBtn {
   width: 44px;
   height: 44px;
@@ -118,14 +217,25 @@
   font-size: 0.85rem;
   font-weight: 600;
 }
+/* With the sheet expanded the map is not the focus, and these controls would
+   be clipped off-screen anyway. */
+.shell[data-sheet="expanded"] .mapControls { display: none; }
+/* Expanded is a modal reading view (dimmed scrim + content-height card). The
+   floating planning panel must not stay on screen behind it: its max-height is
+   derived from the sheet's measured height, so a tall expanded sheet collapses
+   it to a squished, half-cut sliver. Hide it — collapsing the sheet brings it
+   straight back, same as the map controls above. */
+.shell[data-sheet="expanded"] .topStack { display: none; }
 
-/* ---- "I don't feel well" pill, anchored to the sheet top edge (OVW-01, §4) ---- */
+/* ---- "I don't feel well" pill, anchored to the sheet's top edge (OVW-01, §4).
+   It keeps the same position relative to the sheet at every sheet height. ---- */
 .overwhelmWrap {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: 10px;
+  bottom: calc(var(--sheet-measured) + 10px);
   z-index: 16;
+  max-width: calc(100% - 1.5rem);
 }
 .overwhelm {
   min-height: 56px;
@@ -139,34 +249,101 @@
   border-radius: 999px;
   font-weight: 700;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
 }
-.overwhelm svg { width: 22px; height: 22px; }
+.overwhelm svg { width: 22px; height: 22px; flex: none; }
 
-/* ---- Bottom sheet (LAY-06) ---- */
+
+/* ---- Bottom sheet: the foreground layer.
+   z-index 30 puts it ABOVE the top panel (z-index 20), so the two can never
+   fight for the same pixels: the sheet is the front-most surface and the top
+   panel scrolls above it. Height is exactly --sheet-offset (the expanded
+   override makes it content-height) so the map controls
+   and the overwhelm pill above it line up perfectly at every state. ---- */
 .sheet {
-  position: relative;
-  z-index: 18;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  height: var(--sheet-offset);
+  max-height: 92dvh;
   background: var(--surface);
-  border-top: 1px solid var(--border);
-  border-radius: 14px 14px 0 0;
-  box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.22);
-  max-height: 82dvh;
+  border-top: 1px solid var(--border-strong);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -6px 28px rgba(0, 0, 0, 0.35);
   display: flex;
   flex-direction: column;
+  padding-bottom: var(--safe-b);
 }
+/* Dimmed backdrop for the expanded sheet, so the map recedes the same way it
+   does behind the settings dialog.
+   z-index 18 is deliberate: above the map (0), its controls (15) and the
+   overwhelm pill (16), but BELOW the top panel (20). The settings dialog can
+   afford to lock everything behind it — it holds nothing the user still needs.
+   This sheet sits under the search fields, so dimming the map must not make the
+   start/destination inputs unreachable while routes are on screen. */
+.sheetScrim {
+  position: absolute;
+  inset: 0;
+  z-index: 18;
+  background: rgba(0, 0, 0, 0.45);
+}
+
 .sheetHandle {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "grabber grabber" "title toggle";
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.55rem 0.9rem;
+  gap: 0.35rem 0.5rem;
+  padding: 0.4rem 0.75rem 0.45rem;
   border-bottom: 1px solid var(--border);
+  flex: none;
+  /* The handle is a drag surface (drawer gesture): block the browser's own
+     touch scrolling/selection so a vertical drag moves the sheet, not the page.
+     The Expand/Hide button inside still clicks (drags starting on it are
+     ignored in JS), so the button-only path (LAY-06) is preserved. */
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+.sheetHandle:active { cursor: grabbing; }
+/* The toggle button keeps normal pointer semantics above the drag surface. */
+.sheetHandle .sheetToggle { cursor: pointer; touch-action: auto; }
+/* Grabber bar: a visual "this sheet slides" cue, not the only control —
+   the Expand/Hide button below is the real, keyboard-operable one (LAY-06). */
+.sheetGrabber {
+  grid-area: grabber;
+  justify-self: center;
+  width: 2.5rem;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border-strong);
 }
 .sheetTitle {
+  grid-area: title;
   margin: 0;
   font-size: 1rem;
 }
+.sheetToggle {
+  grid-area: toggle;
+}
+/* Short status shown in the handle while the sheet body is collapsed. */
+.sheetPeek {
+  grid-area: title;
+  justify-self: end;
+  min-width: 0;
+  max-width: 12rem;
+  text-align: right;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .sheetBody {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding: 0.75rem 0.9rem 1rem;
 }
@@ -174,6 +351,27 @@
   max-width: 680px;
   margin: 0 auto;
 }
+
+/* ---- Expanded sheet: the settings dialog's treatment (LAY-06).
+   Expanded is the "I want to read the routes" state, so it reads as a dialog
+   rather than a slab: a dimmed backdrop, and the panel sized to its content
+   instead of a fixed 72dvh full-bleed panel with dead space under the last row.
+   Geometry deliberately mirrors .panel in components/sheet.module.css. The
+   height stays capped so long route lists scroll inside .sheetBody rather than
+   running off the screen. ---- */
+.shell[data-sheet="expanded"] .sheet {
+  height: auto;
+  width: min(680px, 100%);
+  /* left/right 0 + a width + auto margins centres it (abspos rule). */
+  margin: 0 auto;
+  /* Same geometry as .panel in components/sheet.module.css: flush to the
+     bottom edge, rounded top corners only, 680px cap, 92dvh cap. */
+  max-height: 92dvh;
+  border-radius: 16px 16px 0 0;
+  /* Clip the scrolling body to the rounded corners. */
+  overflow: hidden;
+}
+
 
 /* ---- Profile row: factor toggles + Light three-state + Adjust (FAC-01/02) ---- */
 .profileRow {
@@ -396,7 +594,20 @@
 }
 .compareTable thead th { color: var(--text-muted); font-weight: 700; }
 
-@media (max-width: 420px) {
-  .topbar { grid-template-columns: 1fr; }
-  .topActions { justify-self: end; }
+/* Narrow phones: tighten the panel padding so the map keeps as much height as
+   possible. */
+@media (max-width: 480px) {
+  .shell { --sheet-half: 28dvh; --sheet-expanded: 80dvh; }
+  .topStack { padding: calc(var(--safe-t) + 0.4rem) 0.5rem 0.4rem; gap: 0.35rem; }
+  .panel { padding: 0.5rem 0.6rem; }
+  .sheetBody { padding: 0.6rem 0.7rem 0.85rem; }
+  /* The label shrinks rather than squeezing the summary away. */
+  .mapBtnWide { padding: 0 0.55rem; font-size: 0.8rem; }
 }
+
+/* Reflow at 320 CSS px without two-dimensional scrolling (TYP-02). */
+@media (max-width: 340px) {
+  .overwhelm { padding: 0 0.8rem; font-size: 0.92rem; }
+  .mapBtnWide span { display: none; }
+}
+
