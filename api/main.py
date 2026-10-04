@@ -112,6 +112,34 @@ def parse_point(raw: str | None, name: str) -> tuple[float, float]:
 _TRUE = {"1", "true", "on", "yes", "avoid"}
 
 
+def _parse_when(q) -> tuple[int, int | None]:
+    """Resolve an optional 'Leave at' time from when_day/when_hour query params.
+
+    Returns (day_int, hour) with hour in 0..23, or (current_day, None) if absent
+    or invalid (meaning "now"). Day defaults to today if only the hour is given.
+    """
+    cur_day, _ = _krakow_now()
+    raw_hour = (q.get("when_hour") or "").strip()
+    if raw_hour == "":
+        return cur_day, None
+    try:
+        hour = int(raw_hour)
+    except ValueError:
+        return cur_day, None
+    if not (0 <= hour <= 23):
+        return cur_day, None
+    day = cur_day
+    raw_day = (q.get("when_day") or "").strip()
+    if raw_day != "":
+        try:
+            d = int(raw_day)
+            if 0 <= d <= 6:
+                day = d
+        except ValueError:
+            pass
+    return day, hour
+
+
 def available_factors() -> dict:
     """Which sensory factors the loaded data can actually support."""
     if GRAPH is None:
@@ -152,7 +180,7 @@ def _route_cost(q):
     """
     profile = q.get("profile", "shortest")
     if profile == "shortest":
-        return None, "shortest", {"profile": "shortest"}, {}
+        return None, "shortest", {"profile": "shortest"}, {}, None
     if profile != "sensory":
         return error(400, "bad_request",
                      f"Unknown profile '{profile}'. Available: shortest, sensory.")
@@ -177,22 +205,46 @@ def _route_cost(q):
         return error(400, "bad_request",
                      "Crowd data needs a BestTime API key (set BESTTIME_API_KEY_PRIVATE).")
 
+    # Optional "Leave at" time: when_day (0=Mon..6=Sun) and when_hour (0..23),
+    # computed client-side in Kraków local time. Absent -> route for "now".
+    when_day, when_hour = _parse_when(q)
+
+    crowd_override = None
     if crowd:
-        # Ensure we have current-ish crowd data; refresh in the background if stale.
-        if not CROWD.loaded or CROWD.is_stale():
-            _refresh_crowd_async()
+        cur_day, cur_hour = _krakow_now()
+        if when_hour is not None and (when_day, when_hour) != (cur_day, cur_hour):
+            # A specific future hour: build a one-off crowd layer for it (cached)
+            # without touching the shared "now" snapshot.
+            crowd_override = CROWD.layer_for(GRAPH, when_day, when_hour)
+            if crowd_override is None:
+                # We could not get crowd data for that time (e.g. BestTime quota).
+                # Honest: unknown everywhere for that hour — NEVER reuse "now"
+                # data under a future-time label (UNC-07, UNC-01).
+                n = len(GRAPH.edges)
+                crowd_override = (np.zeros(n), np.zeros(n, dtype=bool))
+        else:
+            # "Now": ensure the shared snapshot is current-ish.
+            if not CROWD.loaded or CROWD.is_stale():
+                _refresh_crowd_async()
 
     multiplier, factor_known = sensory_cost(
-        GRAPH.edges, noise=noise, light=light, crowd=crowd, strength=strength
+        GRAPH.edges, noise=noise, light=light, crowd=crowd, strength=strength,
+        crowd_data=crowd_override,
     )
-    crowd_key = f"c={int(crowd)}@{CROWD.epoch}" if crowd else "c=0"
-    cache_key = f"sensory|n={int(noise)}|l={light}|{crowd_key}|s={strength}"
+    if crowd and crowd_override is not None:
+        crowd_key = f"c=1@d{when_day}h{when_hour}"
+    elif crowd:
+        crowd_key = f"c=1@{CROWD.epoch}"
+    else:
+        crowd_key = "c=0"
+    when_key = f"|w={when_day}:{when_hour}" if when_hour is not None else ""
+    cache_key = f"sensory|n={int(noise)}|l={light}|{crowd_key}|s={strength}{when_key}"
     factors = {"profile": "sensory", "noise": noise, "light": light,
                "crowd": crowd, "strength": strength}
-    return multiplier, cache_key, factors, factor_known
+    return multiplier, cache_key, factors, factor_known, crowd_override
 
 
-def _summarise(eids, factors, factor_known):
+def _summarise(eids, factors, factor_known, crowd_override=None):
     """Per-factor exposure + uncertainty stats and the uncertain sub-paths."""
     eids = np.asarray(eids, dtype="int64")
     seg_len = GRAPH.edge_length[eids]
@@ -234,8 +286,12 @@ def _summarise(eids, factors, factor_known):
         parts.append(f"{val:.0f}% {label}, {unk / total * 100:.0f}% unknown lighting")
 
     if factors.get("crowd"):
-        pen = pd.to_numeric(GRAPH.edges.get("crowd_penalty"), errors="coerce").to_numpy()[eids] \
-            if "crowd_penalty" in GRAPH.edges.columns else np.zeros(len(eids))
+        if crowd_override is not None:
+            pen = np.asarray(crowd_override[0], dtype="float64")[eids]
+        elif "crowd_penalty" in GRAPH.edges.columns:
+            pen = pd.to_numeric(GRAPH.edges.get("crowd_penalty"), errors="coerce").to_numpy()[eids]
+        else:
+            pen = np.zeros(len(eids))
         known = factor_known["crowd"][eids]
         busy = float(seg_len[known & (pen >= 0.5)].sum())
         unk = float(seg_len[~known].sum())
@@ -270,7 +326,7 @@ def route(request: Request):
     resolved = _route_cost(q)
     if isinstance(resolved, JSONResponse):
         return resolved
-    multiplier, cache_key, factors, factor_known = resolved
+    multiplier, cache_key, factors, factor_known, crowd_override = resolved
 
     try:
         from_lat, from_lon = parse_point(q.get("from"), "from")
@@ -301,7 +357,7 @@ def route(request: Request):
     km = length_m / 1000.0
 
     exposure, uncertainty, uncertain_segments, parts = _summarise(
-        result["edge_ids"], factors, factor_known
+        result["edge_ids"], factors, factor_known, crowd_override
     )
     summary = f"About {km:.1f} km, roughly {duration_min} minutes on foot."
     if parts:

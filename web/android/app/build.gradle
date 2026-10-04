@@ -16,7 +16,21 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        debug {
+            // Keep the legacy v1 (JAR) signature alongside v2/v3. AGP drops v1 when
+            // minSdk >= 24, but some OEM package installers fail to parse a
+            // v2-only sideloaded APK ("problem parsing the package"). v1+v2+v3 is
+            // the most compatible form for a hand-installed debug build.
+            enableV1Signing true
+            enableV2Signing true
+            enableV3Signing true
+        }
+    }
     buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'

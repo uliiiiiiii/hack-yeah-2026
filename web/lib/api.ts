@@ -6,13 +6,17 @@ export interface LatLon {
 }
 
 export type LightMode = "avoid_bright" | "prefer_lit";
-export type Strength = "low" | "medium" | "high";
+// "off" measures a factor's exposure without bending the route (shortest-as-sensory).
+export type Strength = "off" | "low" | "medium" | "high";
 
 export interface RouteOptions {
   noise?: boolean;
   light?: LightMode | null;
   crowd?: boolean;
   strength?: Strength;
+  // "Leave at" time, Kraków-local: day 0=Mon..6=Sun and hour 0..23 (UNC-07).
+  whenDay?: number | null;
+  whenHour?: number | null;
 }
 
 export interface NoiseExposure {
@@ -94,16 +98,23 @@ export async function getRoute(
   opts: RouteOptions = {},
 ): Promise<RouteFeature> {
   const active = opts.noise || opts.crowd || (opts.light ?? null);
+  // "sensory" is used both to bend the route and (with strength "off") to measure
+  // the plain shortest route's exposure for comparison.
+  const asSensory = active || opts.strength === "off";
   const params = new URLSearchParams({
     from: `${from.lat},${from.lon}`,
     to: `${to.lat},${to.lon}`,
-    profile: active ? "sensory" : "shortest",
+    profile: asSensory ? "sensory" : "shortest",
   });
-  if (active) {
+  if (asSensory) {
     if (opts.noise) params.set("noise", "on");
     if (opts.light) params.set("light", opts.light);
     if (opts.crowd) params.set("crowd", "on");
     params.set("strength", opts.strength ?? "medium");
+    if (opts.crowd && opts.whenHour != null) {
+      params.set("when_hour", String(opts.whenHour));
+      if (opts.whenDay != null) params.set("when_day", String(opts.whenDay));
+    }
   }
 
   let res: Response;

@@ -1,156 +1,402 @@
+/* Main-screen layout (design-requirements §4) and the shared UI pieces.
+   Reading order top→bottom: top bar, When row, map (last, with a skip link). */
+
 .shell {
   position: relative;
   width: 100%;
   height: 100dvh;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
+/* ---- Top bar: fields + Swap, with Settings/Help top-right (LAY-02, LAY-04) ---- */
+.topbar {
+  position: relative;
+  z-index: 20;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0.6rem 0.75rem;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem 0.75rem;
+  align-items: end;
+}
+.fields {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.topActions {
+  display: flex;
+  gap: 0.4rem;
+  align-self: start;
+}
+.field label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 0.15rem;
+}
+.field input {
+  font: inherit;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+.swapRow {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ---- When row: Now / Leave at segmented control (FAC-04) ---- */
+.whenRow {
+  position: relative;
+  z-index: 20;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0.4rem 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.whenLabel {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* ---- Map ---- */
+.mapWrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .map {
   position: absolute;
   inset: 0;
 }
 
-.panel {
+/* Map controls — all ≥44px, 8px gaps (MAP-03). */
+.mapControls {
   position: absolute;
-  top: 1rem;
-  left: 1rem;
-  z-index: 10;
-  width: min(340px, calc(100% - 2rem));
-  max-height: calc(100dvh - 2rem);
-  overflow-y: auto;
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  padding: 1rem;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
-}
-
-.title {
-  margin: 0 0 0.25rem;
-  font-size: 1.15rem;
-}
-
-.hint {
-  margin: 0 0 0.75rem;
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-.status {
-  margin: 0.5rem 0;
-  font-size: 0.95rem;
-  min-height: 1.2em;
-}
-
-.summary {
-  margin: 0.5rem 0;
-  font-weight: 600;
-}
-
-.meta {
-  margin: 0.25rem 0 0;
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-
-.error {
-  background: var(--error-bg);
-  color: var(--error-fg);
-  border-radius: 6px;
-  padding: 0.5rem 0.65rem;
-  font-size: 0.9rem;
-}
-
-.form {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  margin: 0.75rem 0 0;
-  border-top: 1px solid var(--panel-border);
-  padding-top: 0.75rem;
+  gap: 8px;
+  z-index: 15;
 }
-
-.row {
+.mapControls.right { right: 10px; top: 10px; }
+.mapControls.locate { right: 10px; bottom: 76px; }
+.mapControls.left { left: 10px; bottom: 10px; }
+.mapBtn {
+  width: 44px;
+  height: 44px;
   display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  padding: 0;
 }
-
-.row button {
-  flex: 1 1 auto;
-}
-
-@media (max-width: 520px) {
-  .panel {
-    top: auto;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    max-height: 55dvh;
-    border-radius: 10px 10px 0 0;
-  }
-}
-
-.factors {
-  margin: 0.5rem 0 0;
-  padding: 0.6rem 0.75rem;
-  border: 1px solid var(--panel-border);
-  border-radius: 8px;
-}
-.factors legend {
+.mapBtn svg { width: 22px; height: 22px; }
+.mapBtnWide {
+  width: auto;
+  padding: 0 0.7rem;
+  gap: 0.4rem;
   font-size: 0.85rem;
   font-weight: 600;
-  padding: 0 0.35rem;
-}
-.check {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.92rem;
-  color: var(--fg);
-  margin-bottom: 0.2rem;
-}
-.subgroup {
-  margin-top: 0.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-.subLabel {
-  font-size: 0.8rem;
-  color: var(--muted);
-  font-weight: 600;
-}
-.radio {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.9rem;
-  color: var(--fg);
-}
-.check input,
-.radio input {
-  width: 1rem;
-  height: 1rem;
-  flex: none;
-}
-.select {
-  font: inherit;
-  padding: 0.35rem 0.5rem;
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
-  background: #fff;
-  color: var(--fg);
-  max-width: 10rem;
 }
 
-.factorStats {
+/* ---- "I don't feel well" pill, anchored to the sheet top edge (OVW-01, §4) ---- */
+.overwhelmWrap {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 10px;
+  z-index: 16;
+}
+.overwhelm {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 1.1rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 2px solid var(--accent);
+  border-radius: 999px;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.overwhelm svg { width: 22px; height: 22px; }
+
+/* ---- Bottom sheet (LAY-06) ---- */
+.sheet {
+  position: relative;
+  z-index: 18;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-radius: 14px 14px 0 0;
+  box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.22);
+  max-height: 82dvh;
+  display: flex;
+  flex-direction: column;
+}
+.sheetHandle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+.sheetTitle {
+  margin: 0;
+  font-size: 1rem;
+}
+.sheetBody {
+  overflow-y: auto;
+  padding: 0.75rem 0.9rem 1rem;
+}
+.sheetInner {
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+/* ---- Profile row: factor toggles + Light three-state + Adjust (FAC-01/02) ---- */
+.profileRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+.toggle {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0 0.8rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.toggle[aria-pressed="true"] {
+  background: var(--surface-2);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.toggle .check,
+.check { width: 18px; height: 18px; flex: none; }
+
+/* Light three-state segmented control. */
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.segmented button {
+  min-height: 44px;
+  border: 0;
+  border-right: 1px solid var(--border-strong);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.segmented button:last-child { border-right: 0; }
+.segmented button[aria-pressed="true"] {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* ---- Route cards (MAP-06, UNC-04, FAC-05) ---- */
+.cards {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.4rem;
+}
+.card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.7rem 0.8rem;
+}
+.card[aria-pressed="true"] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.badge {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  font-weight: 800;
+  color: #fff;
+  font-size: 0.95rem;
+}
+.badge.a { background: var(--route-quiet); }
+.badge.b { background: var(--route-lit); }
+.badge.s { background: var(--route-shortest); }
+.cardName { font-weight: 700; }
+.cardSelected {
+  margin-left: auto;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.cardMeta {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.cardFactors {
   list-style: none;
   margin: 0.4rem 0 0;
   padding: 0;
-  font-size: 0.85rem;
-  color: var(--fg);
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.86rem;
 }
-.factorStats li {
-  margin: 0.15rem 0;
+.cardFactors li { display: flex; gap: 0.4rem; align-items: baseline; }
+.fLabel { font-weight: 600; min-width: 3.2rem; }
+.gapTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--no-data);
+  font-weight: 700;
+}
+.gapQ {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 1.5px solid var(--no-data);
+  border-radius: 50%;
+  font-size: 0.72rem;
+}
+
+/* ---- Primary action (LAY-01): one filled accent button, full width, at bottom ---- */
+.primary {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 0.8rem;
+  background: var(--accent);
+  color: var(--accent-text);
+  border: 1px solid transparent;
+  border-radius: 12px;
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+.primary:disabled { opacity: 0.55; }
+
+/* ---- Status line (AT-02) ---- */
+.status {
+  margin: 0.2rem 0 0.4rem;
+  font-size: 0.92rem;
+  min-height: 1.2em;
+}
+.statusError {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-start;
+  background: color-mix(in srgb, var(--error) 14%, var(--surface));
+  border: 1px solid var(--error);
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  color: var(--text);
+}
+.statusError svg { color: var(--error); flex: none; margin-top: 2px; }
+
+.compareRow {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0.2rem 0;
+}
+
+/* Generic buttons used across sheets. */
+.btn {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0 0.85rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.btn svg { width: 20px; height: 20px; }
+.btnAccent {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: transparent;
+}
+.btnGhost { border-color: transparent; background: transparent; }
+
+.hint {
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  margin: 0.2rem 0 0.6rem;
+}
+
+/* Compare table (F3) — a real data table. */
+.tableWrap { overflow-x: auto; }
+.compareTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.compareTable th,
+.compareTable td {
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.compareTable thead th { color: var(--text-muted); font-weight: 700; }
+
+@media (max-width: 420px) {
+  .topbar { grid-template-columns: 1fr; }
+  .topActions { justify-self: end; }
 }

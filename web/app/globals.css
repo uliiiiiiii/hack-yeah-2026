@@ -1,20 +1,97 @@
-:root {
-  --bg: #ffffff;
-  --fg: #141414;
-  --muted: #555;
-  --panel-bg: #ffffff;
-  --panel-border: #c9c9c9;
-  --accent: #0b5cad;
-  --accent-contrast: #ffffff;
-  --error-bg: #fbe9e7;
-  --error-fg: #8a1c0a;
-  --focus: #1769aa;
+/*
+ * Design tokens and base styles.
+ * Source of truth: design-requirements.md §3 (tokens) and §2A/2B/2C/2D.
+ *
+ * Theme resolution: the inline script in layout.tsx stamps data-theme on <html>
+ * before paint (no flash, COL-07). prefers-color-scheme is the default signal;
+ * data-theme="light|dark" is the explicit user override and always wins.
+ */
+
+/* ---- Light theme (default). Background #F6F3EE. ---- */
+:root,
+:root[data-theme="light"] {
   color-scheme: light;
+
+  --bg: #f6f3ee;
+  --surface: #fffdf9;        /* card/sheet surface [DATA]: 1.03:1 on bg, border carries separation */
+  --surface-2: #efeae1;      /* insets, pressed toggles */
+  --text: #2b2f33;           /* 12.2:1 */
+  --text-muted: #555c63;     /* 6.1:1 */
+  --accent: #1f6f78;         /* 5.3:1; white text on it 5.8:1 */
+  --accent-text: #ffffff;
+  --error: #a4452c;          /* 5.5:1 */
+  --border: #8c8579;         /* 3.3:1 */
+  --border-strong: #5f5a50;  /* stronger divider / control border, ~4.8:1 */
+
+  --route-quiet: #2a6f97;    /* route A, 5.0:1 */
+  --route-lit: #9a5518;      /* route B, 5.2:1 */
+  --route-shortest: #6e6a62; /* [DATA] shortest grey, ~3.2:1 on bg */
+  --no-data: #6b5b95;        /* dashes + ? marker, 5.3:1 */
+
+  /* Crowd stipple [DATA]: one neutral tone, three densities (all ≥3:1 as a mass) */
+  --stipple: #5f5a50;
+  --route-casing: #ffffff;
+}
+
+/* ---- Dark theme. Background #1B1F23 (dark blue-grey, never black). ---- */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #1b1f23;
+  --surface: #242a30;
+  --surface-2: #2e353c;
+  --text: #e4e1da;           /* 12.7:1 */
+  --text-muted: #a9b0b7;     /* 7.6:1 */
+  --accent: #7cc4cb;         /* 8.4:1; dark text on it 8.4:1 */
+  --accent-text: #1b1f23;
+  --error: #e59a83;          /* 7.3:1 */
+  --border: #6a727a;         /* 3.4:1 */
+  --border-strong: #8b949c;
+
+  --route-quiet: #6fb3e0;    /* 7.3:1 */
+  --route-lit: #e0a458;      /* 7.6:1 */
+  --route-shortest: #9aa0a6; /* [DATA] shortest grey, ~5:1 */
+  --no-data: #b7a8e0;        /* 7.7:1 */
+
+  --stipple: #9aa0a6;
+  --route-casing: #0d1013;
+}
+
+/* Follow the device when the user has not overridden (data-theme="system" or unset). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #1b1f23;
+    --surface: #242a30;
+    --surface-2: #2e353c;
+    --text: #e4e1da;
+    --text-muted: #a9b0b7;
+    --accent: #7cc4cb;
+    --accent-text: #1b1f23;
+    --error: #e59a83;
+    --border: #6a727a;
+    --border-strong: #8b949c;
+    --route-quiet: #6fb3e0;
+    --route-lit: #e0a458;
+    --route-shortest: #9aa0a6;
+    --no-data: #b7a8e0;
+    --stipple: #9aa0a6;
+    --route-casing: #0d1013;
+  }
 }
 
 * {
   box-sizing: border-box;
 }
+
+html {
+  /* Text size is driven by the user's text-size setting (data-text-size) and OS
+     scaling. Base 100% = 16px; honoured up to 200% (TYP-01). */
+  font-size: 100%;
+}
+:root[data-text-size="large"] { font-size: 118%; }
+:root[data-text-size="xlarge"] { font-size: 140%; }
+:root[data-text-size="xxlarge"] { font-size: 165%; }
 
 html,
 body {
@@ -24,117 +101,107 @@ body {
 }
 
 body {
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  color: var(--fg);
+  /* One humanist sans-serif family (TYP-04). */
+  font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  color: var(--text);
   background: var(--bg);
-  line-height: 1.4;
+  font-size: 1rem;        /* ≥16px (TYP-03) */
+  line-height: 1.5;       /* ≥1.5 (TYP-03) */
+  text-align: left;       /* never justified (TYP-04) */
+  -webkit-text-size-adjust: 100%;
 }
 
-/* Visible focus for every interactive control. */
-a:focus-visible,
-button:focus-visible,
-input:focus-visible {
-  outline: 3px solid var(--focus);
+h1, h2, h3 { line-height: 1.3; }
+
+/* Visible, unobscured focus ring, ≥3:1 (LAY-08, COL-03). */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--accent);
   outline-offset: 2px;
+  border-radius: 4px;
 }
 
-button {
-  font: inherit;
-  padding: 0.5rem 0.9rem;
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
-  background: var(--accent);
-  color: var(--accent-contrast);
-  cursor: pointer;
+/* Skip link (MAP-04, F11). */
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -200px;
+  z-index: 1000;
+  background: var(--surface);
+  color: var(--text);
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+  font-weight: 600;
+}
+.skip-link:focus {
+  top: 8px;
 }
 
-button.secondary {
-  background: #f0f0f0;
-  color: var(--fg);
-}
-
-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-input[type="text"] {
-  font: inherit;
-  padding: 0.45rem 0.55rem;
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
-  width: 100%;
-  color: var(--fg);
-  background: #fff;
-}
-
-label {
-  display: block;
-  font-size: 0.85rem;
-  color: var(--muted);
-  margin-bottom: 0.2rem;
-}
-
-/* Markers: labelled "A" and "B" so colour is never the only signal. */
+/* Route A / B / shortest markers: letter label + shape, so colour is never alone
+   (COL-04, COL-06). */
 .route-marker {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 50% 50% 50% 0;
   transform: rotate(-45deg);
-  border: 2px solid #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  border: 2px solid var(--route-casing);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
   font-weight: 700;
   color: #fff;
-  cursor: grab;
-}
-.route-marker span {
-  transform: rotate(45deg);
 }
 .route-marker.start {
-  background: #1a7f37;
+  background: #1f6f78;
+  border-radius: 50%;
+  transform: none;
 }
-.route-marker.end {
-  background: #b3261e;
+.route-marker.end { background: #7a3e12; }
+
+/* No-data "?" map marker — four cues together with the dashed line (UNC-02). */
+.nodata-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--no-data);
+  color: var(--no-data);
+  font-weight: 700;
+  font-size: 0.85rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1115;
-    --fg: #f2f2f2;
-    --muted: #c3c3c3;
-    --panel-bg: #1b1f27;
-    --panel-border: #3a3f4a;
-    --accent: #4a9eff;
-    --accent-contrast: #0b0d10;
-    --error-bg: #3a1512;
-    --error-fg: #ffb4a6;
-    --focus: #7fb7ff;
-    color-scheme: dark;
-  }
-  button.secondary {
-    background: #2a2f38;
-    color: var(--fg);
-  }
-  input[type="text"] {
-    background: #0f1115;
-    color: var(--fg);
-  }
-}
-
-/* Respect reduced-motion: the JS also disables flyTo/fitBounds animation. */
+/* Motion: respect reduce-motion and Low-stimulation mode (MOT-02/05). No marching
+   ants, shimmer or pulse anywhere — uncertainty dashes are static by construction. */
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+:root[data-reduce-motion="on"] *,
+:root[data-low-stim="on"] * {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+/* Forced colours: keep borders and dashes visible when the system overrides colour
+   (COL-08). */
+@media (forced-colors: active) {
+  .route-marker,
+  .nodata-marker {
+    forced-color-adjust: none;
+    border: 2px solid CanvasText;
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  select {
-    background: #0f1115 !important;
-    color: var(--fg);
-  }
-}
+/* MapLibre popup/control defaults we don't use are left alone; our controls are
+   plain buttons styled in the module. */

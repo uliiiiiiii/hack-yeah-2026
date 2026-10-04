@@ -1,0 +1,93 @@
+/* Calm, muted, motionless full-screen presentation (OVW-03, OVW-09). */
+.screen {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.back {
+  min-height: 48px;
+  padding: 0 1rem;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  font-weight: 600;
+}
+.call112 {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0 1rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.call112 svg { width: 20px; height: 20px; }
+
+.body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  max-width: 560px;
+  margin: 0 auto;
+  width: 100%;
+}
+.heading {
+  margin: 0;
+  font-size: 1.6rem;
+  line-height: 1.3;
+}
+.heading:focus-visible { outline: none; }
+.line {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--text-muted);
+}
+
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+.choicePrimary,
+.choice {
+  min-height: 56px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-decoration: none;
+  padding: 0 1rem;
+}
+.choicePrimary {
+  background: var(--accent);
+  color: var(--accent-text);
+  border: 1px solid transparent;
+}
+.choice {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+}

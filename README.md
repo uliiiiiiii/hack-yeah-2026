@@ -121,6 +121,34 @@ The response adds `exposure` (per-factor stats), `uncertainty` (per-factor
 `unknown_pct`), and `uncertain_segments` (sub-paths the web app draws **dashed**).
 `GET /health` reports which factors are available.
 
+### Accessible, low-stimulation UI (`design-requirements.md`)
+
+The web/mobile client implements the design spec in `design-requirements.md`
+(WCAG 2.2 AA target, aimed at neurodivergent and sensory-sensitive users):
+
+- **Design tokens** (§3): muted light/dark palettes with the exact hex values and
+  contrast ratios, colour-vision-safe route colours (A blue / Shortest grey, each
+  with a letter badge + line style, never colour alone), theme = device by default
+  with a user override and no flash, forced-colours and reduced-motion support.
+- **Main-screen anatomy** (§4): Start/Destination fields + Swap, Settings/Help, a
+  `When` (Now / Leave at) selector, a map with 44 px Zoom/Locate/Legend/Layers
+  controls, a half-open bottom sheet with the profile row (Noise & Crowds toggles,
+  a three-state Light control, Adjust), Compare, route cards and one full-width
+  primary button, plus the outlined **"I don't feel well"** pill.
+- **Data honesty** (§2E): per-factor coverage in words (never averaged), `~` for
+  typical/estimated crowds, and no-data stretches drawn dashed with a `?` marker
+  and listed for non-visual access. No data is never worded as quiet/dim/empty.
+- **Settings** (§2C/F9): theme, text size (to 200%), low-stimulation, reduce
+  motion, strictness, alerts, language, on-device only, with reset and delete.
+- **Overwhelm flow** (F13): a calm screen that — honestly, because we have no
+  vetted calm-place dataset yet — says it doesn't know of a calm place nearby and
+  offers Stay here and Call 112, rather than inventing a suggestion.
+
+Deferred (need backend/data, or production-only per the spec's own §2P demo
+scope): the business portal (F14–F18), persisted accuracy-vote/verification store,
+a real calm-place dataset, city-wide factor heatmap overlays, and turn-by-turn
+guidance (F5).
+
 ### Crowds via BestTime (optional)
 
 Needs an API key — put it in the **repo-root `.env`** (gitignored; read only by the
@@ -146,6 +174,13 @@ make seed-crowds      # etl/seed_besttime.py — venue searches, background-proc
 Busyness is a **forecast** (typical for the current day/hour), not live — the UI
 labels it "typical for now". Without a key the crowds factor is hidden in the UI
 and rejected by the API.
+
+**Leave at (future times).** The `When` selector can route for a future hour;
+the API fetches a per-hour crowd layer (`when_day`/`when_hour`, cached). Fetching a
+*new* day/hour costs a BestTime credit — if the account's free credits are
+exhausted the request returns `409 quota_exhausted`, and we honestly fall back to
+**No data** for that time (never the current snapshot relabelled). The current hour
+keeps working because it is already forecast in the account.
 
 ## Mobile (Android, via Capacitor)
 

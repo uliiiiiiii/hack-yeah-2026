@@ -24,7 +24,9 @@ import pandas as pd
 
 # How strongly selected factors bend the route. Applied to each factor's 0..1
 # "badness"; multiplier = 1 + weight * sum(badness of active factors).
-STRENGTH_WEIGHT = {"low": 2.0, "medium": 4.0, "high": 8.0}
+# "off" (weight 0) leaves the route as the plain shortest path but still measures
+# its per-factor exposure — used to describe the shortest route for comparison.
+STRENGTH_WEIGHT = {"off": 0.0, "low": 2.0, "medium": 4.0, "high": 8.0}
 
 # Lden dB mapped to 0..1 badness: 50 dB (quiet) -> 0, 85 dB (very loud) -> 1.
 NOISE_DB_QUIET = 50.0
@@ -110,12 +112,16 @@ def sensory_cost(
     light: str | None = None,
     crowd: bool = False,
     strength: str = "medium",
+    crowd_data: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """Combine the selected factors into a per-edge multiplier.
 
     Returns ``(multiplier, factor_known)`` where ``factor_known`` maps each active
     factor name to a boolean array (True where that factor's data is known for the
     edge). The caller uses ``factor_known`` to report/flag uncertain route parts.
+
+    ``crowd_data`` overrides the per-edge (penalty, known) for crowds — used when a
+    "Leave at" time asks for crowding at an hour other than the current snapshot.
     """
     weight = STRENGTH_WEIGHT.get(strength, STRENGTH_WEIGHT["medium"])
     badness = np.zeros(len(edges), dtype="float64")
@@ -132,7 +138,11 @@ def sensory_cost(
         factor_known["light"] = known
 
     if crowd:
-        bad, known = _factor_crowd(edges)
+        if crowd_data is not None:
+            pen, known = crowd_data
+            bad = np.where(known, np.clip(pen, 0.0, 1.0), 0.0)
+        else:
+            bad, known = _factor_crowd(edges)
         badness = badness + bad
         factor_known["crowd"] = known
 

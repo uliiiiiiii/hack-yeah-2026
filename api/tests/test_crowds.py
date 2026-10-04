@@ -49,8 +49,10 @@ def test_sensory_crowd_penalizes_busy_edges(graph):
     assert mult[6] > mult[10]  # edge 10 is in the far {4,5} component (no crowd)
 
 
-def test_api_crowd_requires_key(client):
-    # No BESTTIME key in the test env → crowd factor is unavailable → 400.
+def test_api_crowd_requires_key(client, monkeypatch):
+    # With no BestTime key the crowd factor is unavailable → 400. Force the key
+    # absent so this holds regardless of any real key in the developer's .env.
+    monkeypatch.setattr(crowds, "api_key", lambda: None)
     r = client.get("/route", params={
         "from": "50.0600,19.9400", "to": "50.0600,19.9460",
         "profile": "sensory", "crowd": "on",

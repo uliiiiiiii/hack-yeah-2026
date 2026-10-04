@@ -166,9 +166,34 @@ class CrowdState:
     last_error: str | None = None
     loaded: bool = False
     _busy: bool = field(default=False)
+    # Cache of (penalty, known) per (day_int, hour) for "Leave at" times, so moving
+    # a time picker doesn't re-spend a BestTime query credit for the same hour.
+    _hour_cache: dict = field(default_factory=dict)
 
     def is_stale(self) -> bool:
         return (time.time() - self.fetched_at) > REFRESH_SECONDS
+
+    def layer_for(self, graph, day_int: int, hour: int, *, live: bool = False
+                  ) -> tuple[np.ndarray, np.ndarray] | None:
+        """Per-edge (penalty, known) for a specific day/hour (for "Leave at").
+
+        Does NOT mutate the shared graph columns. Cached per (day, hour). Returns
+        None if crowds are not configured or the fetch failed (caller then falls
+        back to "unknown everywhere", never to "quiet").
+        """
+        if not configured():
+            return None
+        key = (int(day_int), int(hour))
+        if key in self._hour_cache:
+            return self._hour_cache[key]
+        try:
+            venues = fetch_busy_venues(day_int, hour, live=live)
+            layer = build_crowd_layer(graph, venues)
+            self._hour_cache[key] = layer
+            return layer
+        except Exception as exc:
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            return None
 
     def refresh(self, graph, *, now_day: int, now_hour: int, live: bool = False) -> None:
         """Fetch current busyness and update graph.edges crowd columns in place."""
