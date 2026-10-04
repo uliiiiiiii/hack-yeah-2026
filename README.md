@@ -5,14 +5,16 @@ Routing runs on an OpenStreetMap walking graph with **pluggable edge costs**: a
 "profile" is just a function from edge columns to a cost multiplier, so new data
 sources (noise, accessibility, …) can be added later without touching the plumbing.
 
-Everything here is free and open-source. No API keys, no paid services.
+Everything here is free and open-source. The map tiles (OpenFreeMap), geocoding
+(Nominatim) and routing data are keyless; only the optional **crowds** factor
+needs a BestTime API key.
 
 ```
 project/
   etl/   download the OSM walk network -> data/nodes.parquet, data/edges.parquet
   api/   FastAPI service that routes over the parquet files (no osmnx at runtime)
   web/   Next.js + MapLibre map UI (dumb client: sends two points, draws the line)
-  data/  generated files (gitignored)
+  data/  runtime routing data + seeded places (committed; the heavy ETL inputs are gitignored)
 ```
 
 ## Architecture in one paragraph
@@ -34,17 +36,27 @@ as nulls everywhere; a missing tag means *unknown*, never *good*.
 
 ## From a clean checkout to a running app
 
+The routing data (`data/*.parquet`) is **already committed**, so you do not need
+to run the ETL. To just run the app:
+
 ```bash
 # 1. Create virtualenvs + install all dependencies (Python and web)
 make setup
 
-# 2. Build the data: downloads the Kraków walk network, writes the parquet files
-#    (first run downloads ~180 MB of OSM data; subsequent runs reuse the graphml)
-make data
-
-# 3. Run the API on http://localhost:8000
+# 2. Run the API on http://localhost:8000
 make api
 ```
+
+In a second terminal:
+
+```bash
+# 3. Run the web app on http://localhost:3000
+make web
+```
+
+> To **rebuild** the data from scratch (downloads ~180 MB of OSM data + the noise
+> shapefiles), run `make data` instead — but this is only needed if you edit the
+> ETL.
 
 In a second terminal:
 
@@ -62,12 +74,14 @@ route is drawn with a summary. You can also type two `lat, lon` pairs and press
 | target  | what it does                                              |
 |---------|-----------------------------------------------------------|
 | `setup` | create `etl/.venv` and `api/.venv`, install deps, `npm install` in `web/` |
-| `data`  | `build_graph.py` then `build_edges.py`                    |
+| `data`  | `build_graph.py` → `build_edges.py` → `build_noise.py` (rebuilds the committed data) |
 | `api`   | `uvicorn main:app --reload --port 8000` from `api/`       |
+| `api-lan` | `uvicorn main:app --host 0.0.0.0 --port 8000` (so a phone on the LAN can reach it) |
 | `web`   | `npm run dev` (Node 20 via nvm) from `web/`               |
+| `mobile-apk` | build the Android APK (needs Node 22 + Android SDK)   |
 | `audit` | run `audit_physical.py` and `audit_tradeoff.py`           |
 | `test`  | run the API test suite (`pytest`)                         |
-| `clean` | remove generated `data/` files (keeps the venvs)          |
+| `clean` | delete the committed `data/` files (forces a `make data` rebuild; keeps the venvs) |
 
 You can run the sub-steps by hand too, e.g. `cd api && .venv/bin/python -m pytest`.
 
@@ -88,7 +102,7 @@ Success is a GeoJSON `Feature` (LineString, `[lon, lat]`) with `profile`,
 Edit `api/profiles.py`: write a function `f(edges: pd.DataFrame) -> np.ndarray`
 returning one multiplier (>= 1.0, or `np.inf` to exclude) per edge, and register
 it in the `PROFILES` dict. It is exposed automatically via `?profile=<key>`.
-Only `shortest` (all ones) is implemented now.
+Named profiles today: `shortest` (all ones) and `sensory` (see below).
 
 ## Audits
 
