@@ -1,0 +1,24 @@
+# Docker build context — keep it to the API source + the runtime parquet data.
+.git
+web
+etl
+**/__pycache__
+**/*.pyc
+**/.venv
+**/.pytest_cache
+
+# ETL-only inputs (heavy) — the API never reads these at runtime.
+data/krakow_walk.graphml
+data/raw_noise
+data/audit_physical.csv
+data/audit_tradeoff.csv
+data/.gitkeep
+
+# Secrets and docs.
+.env
+.env.example
+.env.local
+design-requirements.md
+SPEC.md
+README.md
+Makefile

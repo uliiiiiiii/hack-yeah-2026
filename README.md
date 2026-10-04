@@ -182,6 +182,29 @@ exhausted the request returns `409 quota_exhausted`, and we honestly fall back t
 **No data** for that time (never the current snapshot relabelled). The current hour
 keeps working because it is already forecast in the account.
 
+## Quiet places (user-submitted, with quiet hours)
+
+The demo has a **basic** version of the spec's "quiet places" (§2O/§2P, F13–F19):
+anyone can add a place on the map, give it a weekly quiet-hours schedule, check in
+when they're there, and vote on whether the claim is accurate. The overwhelm flow
+(**I don't feel well**) now searches these places and offers the nearest one whose
+quiet hours are active.
+
+Honesty rules hold here too: a place is always **"Reported by a person · Not
+verified · Estimated"** (declared data is never "known"), votes are **opinions,
+not verification**, and enough "not accurate" votes mark a place **Disputed** and
+exclude it from suggestions. Places live in a separate layer and never change
+street routing (BIZ-14).
+
+Data is stored in **SQLite** at `data/places.db` (created automatically; no extra
+dependency). No accounts — the web app sends an anonymous, on-device `device_id`
+to dedupe votes and check-ins. The team can mark a place **Verified** via
+`POST /quiet-places/{id}/verify` with the `VERIFY_TOKEN` env var set (see below).
+
+**Deployment note:** unlike the read-only parquet files, `places.db` is *mutable*
+user data — in a real deploy it must sit on a **persistent volume**, not ephemeral
+storage.
+
 ## Mobile (Android, via Capacitor)
 
 The web app is also wrapped with [Capacitor](https://capacitorjs.com/) to run as a
@@ -201,6 +224,49 @@ Full details, prerequisites, and the "open in Android Studio" flow are in
 [`web/README-mobile.md`](web/README-mobile.md). Needs **Node 22+** (Capacitor CLI),
 **Java 21**, and an **Android SDK**; the web app alone only needs Node 20+.
 
+## Deployment (Docker + Render + Vercel)
+
+The routing data is **baked into a Docker image** (see `Dockerfile` + `.dockerignore`),
+so the API runs anywhere with no ETL step. The web app is a static export.
+
+### API → Render
+
+1. Render **New → Web Service**, choose **Build and deploy from a Git repository**,
+   point it at this repo. Render auto-detects the `Dockerfile`; the start command
+   is `uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}` (Render injects `PORT`).
+2. Environment variables:
+   - `ALLOWED_ORIGINS` — your web origin(s), e.g. `https://<you>.vercel.app,http://localhost:3000`
+   - `BESTTIME_API_KEY_PRIVATE` — your BestTime key (optional; enables the crowds factor)
+   - `VERIFY_TOKEN` — any secret (optional; enables the mark-Verified endpoint)
+   - `DATA_DIR` is baked as `/app/data`; leave it.
+3. (Optional) **Persistent disk** for `places.db`: attach a disk (mount path
+   e.g. `/var/data`) and set `PLACES_DB=/var/data/places.db` so places/votes survive
+   redeploys. Without it the seeded 7 places are baked in, but new places/votes are
+   lost on the next deploy.
+
+### Web → Vercel
+
+The `web/` app is `output: "export"`, so it deploys as a static site:
+
+1. Vercel **Import project**, set **Root directory** to `web`.
+2. Build command `npm run build`, output directory `out`.
+3. Environment variables (set **before** build — they are baked into the client bundle):
+   - `NEXT_PUBLIC_API_URL` — your Render API URL, e.g. `https://<you>.onrender.com`
+   - `NEXT_PUBLIC_MAP_STYLE_URL` — `https://tiles.openfreemap.org/styles/liberty`
+4. CORS: make sure the Vercel origin is in the API's `ALLOWED_ORIGINS` (step 1.2).
+
+### Local Docker
+
+```bash
+docker build -t krakow-routes-api .
+docker run --rm -p 8000:8000 krakow-routes-api
+# then run the web app locally with NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+The image bakes `nodes.parquet`, `edges.parquet`, `edge_sensory.parquet`,
+`build_info.json` and the seeded `places.db`; the heavy ETL-only files (186 MB
+graphml, raw noise shapefiles) are excluded by `.dockerignore`.
+
 ## Configuration
 
 See `.env.example` (root) and `web/.env.example`. All values have working
@@ -210,6 +276,9 @@ defaults; no `.env` file is required for local use.
 |---|---|---|
 | `ALLOWED_ORIGINS` | api (CORS) | `http://localhost:3000` |
 | `DATA_DIR` | api | `../data` |
+| `PLACES_DB` | api | `DATA_DIR/places.db` — override to put the mutable DB on a volume |
+| `BESTTIME_API_KEY_PRIVATE` | api | *(unset)* |
+| `VERIFY_TOKEN` | api | *(unset — disables the mark-Verified endpoint)* |
 | `NEXT_PUBLIC_API_URL` | web | `http://localhost:8000` |
 | `NEXT_PUBLIC_MAP_STYLE_URL` | web | `https://tiles.openfreemap.org/styles/liberty` |
 

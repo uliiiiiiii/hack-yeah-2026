@@ -174,6 +174,30 @@ h1, h2, h3 { line-height: 1.3; }
   font-size: 0.85rem;
 }
 
+/* Quiet-place marker: a ring with a centre dot — a distinct shape so it is not
+   told apart by colour alone (BIZ-15, COL-04). */
+.place-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--route-casing);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.place-marker::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-text);
+}
+.place-marker.disputed {
+  background: var(--error);
+}
+
 /* Motion: respect reduce-motion and Low-stimulation mode (MOT-02/05). No marching
    ants, shimmer or pulse anywhere — uncertainty dashes are static by construction. */
 @media (prefers-reduced-motion: reduce) {
@@ -197,7 +221,8 @@ h1, h2, h3 { line-height: 1.3; }
    (COL-08). */
 @media (forced-colors: active) {
   .route-marker,
-  .nodata-marker {
+  .nodata-marker,
+  .place-marker {
     forced-color-adjust: none;
     border: 2px solid CanvasText;
   }

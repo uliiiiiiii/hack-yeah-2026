@@ -114,3 +114,24 @@ export const ChevronUpIcon = (p: P) => (
 export const ChevronDownIcon = (p: P) => (
   <svg {...base(p)}><path d="m6 9 6 6 6-6" /></svg>
 );
+
+export const PinIcon = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+    <circle cx="12" cy="10" r="3" />
+  </svg>
+);
+
+export const ThumbUpIcon = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M7 10v12" />
+    <path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" />
+  </svg>
+);
+
+export const ThumbDownIcon = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M17 14V2" />
+    <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z" />
+  </svg>
+);

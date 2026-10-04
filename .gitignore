@@ -1,6 +1,13 @@
-# Generated data (keep the folder, not its contents)
+# Generated data (keep the folder, not its contents).
+# The runtime routing data + seeded places DB are committed so a clean clone runs
+# without re-running the ETL; the heavy ETL-only inputs stay ignored.
 data/*
 !data/.gitkeep
+!data/nodes.parquet
+!data/edges.parquet
+!data/edge_sensory.parquet
+!data/build_info.json
+!data/places.db
 
 # Environment
 .env

@@ -22,22 +22,24 @@ import {
 import Sheet from "@/components/Sheet";
 import PlaceField from "@/components/PlaceField";
 import SettingsSheet from "@/components/SettingsSheet";
-import HelpSheet from "@/components/HelpSheet";
 import LegendSheet from "@/components/LegendSheet";
 import LayersSheet, { DEFAULT_LAYERS, type MapLayers } from "@/components/LayersSheet";
 import Onboarding, { type OnboardProfile } from "@/components/Onboarding";
 import OverwhelmFlow from "@/components/OverwhelmFlow";
+import AddPlaceSheet from "@/components/AddPlaceSheet";
+import PlaceSheet from "@/components/PlaceSheet";
+import { listPlaces, type Place } from "@/lib/places";
 import {
   CheckIcon,
   ChevronDownIcon,
   ChevronUpIcon,
   GearIcon,
   HeartPulseIcon,
-  HelpIcon,
   LayersIcon,
   LegendIcon,
   LocateIcon,
   MinusIcon,
+  PinIcon,
   PlusIcon,
   SwapIcon,
   WarningIcon,
@@ -94,6 +96,13 @@ function qMarkerEl(): HTMLDivElement {
   el.className = "nodata-marker";
   el.setAttribute("aria-hidden", "true");
   el.textContent = "?";
+  return el;
+}
+
+function placeMarkerEl(disputed: boolean): HTMLDivElement {
+  const el = document.createElement("div");
+  el.className = `place-marker${disputed ? " disputed" : ""}`;
+  el.setAttribute("aria-hidden", "true");
   return el;
 }
 
@@ -159,7 +168,7 @@ export default function Page() {
   const [topOpen, setTopOpen] = useState(true);
   const [showCompare, setShowCompare] = useState(false);
   const [sheetOpen, setSheetOpen] = useState<
-    "settings" | "help" | "legend" | "adjust" | "layers" | null
+    "settings" | "legend" | "adjust" | "layers" | "addPlace" | "place" | null
   >(null);
   const [overwhelm, setOverwhelm] = useState(false);
   const [avail, setAvail] = useState({ noise: true, light: true, crowd: false });
@@ -172,9 +181,17 @@ export default function Page() {
     [],
   );
 
+  // ---- Quiet places (user-submitted, §2O) ----
+  const [places, setPlaces] = useState<Place[]>([]);
+  const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
+  const placeMarkers = useRef<maplibregl.Marker[]>([]);
+  const [addPlaceLocation, setAddPlaceLocation] = useState<LatLon | null>(null);
+  const addPlaceMode = useRef(false); // crosshair pick-a-location mode
+  const [addingPlace, setAddingPlace] = useState(false); // drives the banner + cursor
+  const addPlaceBtn = useRef<HTMLButtonElement | null>(null);
+
   // Trigger refs so sheets can return focus (LAY-06).
   const settingsBtn = useRef<HTMLButtonElement | null>(null);
-  const helpBtn = useRef<HTMLButtonElement | null>(null);
   const legendBtn = useRef<HTMLButtonElement | null>(null);
   const layersBtn = useRef<HTMLButtonElement | null>(null);
   const adjustBtn = useRef<HTMLButtonElement | null>(null);
@@ -221,6 +238,10 @@ export default function Page() {
     /* eslint-enable react-hooks/set-state-in-effect */
     getHealth()
       .then((h) => setAvail(h.factors))
+      .catch(() => {});
+    // Quiet places are optional — a failure here must never break the map.
+    listPlaces()
+      .then(setPlaces)
       .catch(() => {});
   }, []);
 
@@ -318,6 +339,61 @@ export default function Page() {
     drawSelected();
   }, [layers, drawSelected]);
 
+  // ----- Quiet places: markers + add-place flow (BIZ-15, MAP-05) -----
+  const drawPlaces = useCallback(() => {
+    const map = mapRef.current;
+    placeMarkers.current.forEach((m) => m.remove());
+    placeMarkers.current = [];
+    if (!map || !layers.quietPlaces) return;
+    for (const p of places) {
+      const marker = new maplibregl.Marker({ element: placeMarkerEl(p.disputed) })
+        .setLngLat([p.lon, p.lat])
+        .addTo(map);
+      marker.getElement().addEventListener("click", (e) => {
+        e.stopPropagation();
+        setSelectedPlace(p);
+        setSheetOpen("place");
+      });
+      placeMarkers.current.push(marker);
+    }
+  }, [places, layers.quietPlaces]);
+
+  // Latest drawPlaces, so the map 'load' handler can draw markers the moment the
+  // map is ready even if the places fetch resolved first (avoids a missed draw).
+  const drawPlacesRef = useRef(drawPlaces);
+  useEffect(() => {
+    drawPlacesRef.current = drawPlaces;
+  }, [drawPlaces]);
+
+  useEffect(() => {
+    drawPlaces();
+  }, [drawPlaces]);
+
+  const cancelAddPlace = useCallback(() => {
+    addPlaceMode.current = false;
+    setAddingPlace(false);
+    const canvas = mapRef.current?.getCanvas();
+    if (canvas) canvas.style.cursor = "";
+  }, []);
+
+  const finishAddPlace = useCallback((loc: LatLon) => {
+    addPlaceMode.current = false;
+    setAddingPlace(false);
+    const canvas = mapRef.current?.getCanvas();
+    if (canvas) canvas.style.cursor = "";
+    setAddPlaceLocation(loc);
+    setSheetOpen("addPlace");
+  }, []);
+
+  const beginAddPlace = useCallback(() => {
+    setAddPlaceLocation(null);
+    addPlaceMode.current = true;
+    setAddingPlace(true);
+    setSheetOpen(null);
+    const canvas = mapRef.current?.getCanvas();
+    if (canvas) canvas.style.cursor = "crosshair";
+  }, []);
+
   // ----- Routing -----
   const requestRoutes = useCallback(
     async (from: LatLon, to: LatLon) => {
@@ -405,6 +481,11 @@ export default function Page() {
   const onMapClick = useCallback(
     (lngLat: maplibregl.LngLat) => {
       const p: LatLon = { lat: lngLat.lat, lon: lngLat.lng };
+      // In "add place" mode the click pins a location instead of a route point.
+      if (addPlaceMode.current) {
+        finishAddPlace(p);
+        return;
+      }
       if (!startPt.current) {
         setEndpoint("start", p);
         setStatus("picking");
@@ -420,7 +501,7 @@ export default function Page() {
         setStatus("picking");
       }
     },
-    [setEndpoint, requestRoutes],
+    [setEndpoint, requestRoutes, finishAddPlace],
   );
 
   // Re-route when the profile / time changes and we already have both endpoints.
@@ -524,6 +605,7 @@ export default function Page() {
         paint: { "line-color": cssVar("--no-data"), "line-width": 5, "line-dasharray": [2, 2] },
       });
       drawSelected();
+      drawPlacesRef.current();
     });
 
     map.on("click", (e) => onMapClick(e.lngLat));
@@ -700,7 +782,11 @@ export default function Page() {
   };
 
   const deleteData = () => {
-    if (typeof window !== "undefined") window.localStorage.removeItem("krk.settings");
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("krk.settings");
+      window.localStorage.removeItem("krk.device");
+      window.localStorage.removeItem("krk.votes");
+    }
     const d = { ...DEFAULT_SETTINGS };
     setSettings(d);
     applySettings(d);
@@ -902,6 +988,32 @@ export default function Page() {
           aria-label="Map of Kraków. Tap to set start and destination."
         />
 
+        {addingPlace && (
+          <div
+            role="status"
+            style={{
+              position: "absolute",
+              top: "0.75rem",
+              left: "50%",
+              transform: "translateX(-50%)",
+              background: "var(--surface)",
+              border: "1px solid var(--border-strong)",
+              borderRadius: "10px",
+              padding: "0.55rem 0.8rem",
+              display: "flex",
+              gap: "0.75rem",
+              alignItems: "center",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+              zIndex: 10,
+            }}
+          >
+            <span>Tap the map to place your place.</span>
+            <button type="button" className={styles.btn} onClick={cancelAddPlace} style={{ minHeight: "40px" }}>
+              Cancel
+            </button>
+          </div>
+        )}
+
         <div className={`${styles.mapControls} ${styles.right}`}>
           <button type="button" className={styles.mapBtn} onClick={() => zoom(1)} aria-label="Zoom in">
             <PlusIcon />
@@ -912,8 +1024,39 @@ export default function Page() {
           <button type="button" className={styles.mapBtn} onClick={locate} aria-label="Use my location">
             <LocateIcon />
           </button>
+          <button
+            ref={layersBtn}
+            type="button"
+            className={styles.mapBtn}
+            onClick={() => setSheetOpen("layers")}
+            aria-haspopup="dialog"
+            aria-label="Map layers"
+          >
+            <LayersIcon />
+          </button>
         </div>
         <div className={`${styles.mapControls} ${styles.left}`}>
+          <button
+            type="button"
+            className={`${styles.mapBtn} ${styles.mapBtnWide} ${layers.quietPlaces ? styles.mapBtnActive : ""}`}
+            aria-pressed={layers.quietPlaces}
+            onClick={() => patchLayers({ quietPlaces: !layers.quietPlaces })}
+            aria-label="Show quiet places"
+          >
+            <PinIcon />
+            Quiet places
+          </button>
+          <button
+            ref={addPlaceBtn}
+            type="button"
+            className={`${styles.mapBtn} ${styles.mapBtnWide}`}
+            onClick={beginAddPlace}
+            aria-haspopup="dialog"
+            aria-label="Add a quiet place"
+          >
+            <PinIcon />
+            Add place
+          </button>
           <button
             ref={legendBtn}
             type="button"
@@ -924,17 +1067,6 @@ export default function Page() {
             Legend
           </button>
           <button
-            ref={layersBtn}
-            type="button"
-            className={`${styles.mapBtn} ${styles.mapBtnWide}`}
-            onClick={() => setSheetOpen("layers")}
-            aria-haspopup="dialog"
-            aria-label="Map layers"
-          >
-            <LayersIcon />
-            Layers
-          </button>
-          <button
             ref={settingsBtn}
             type="button"
             className={`${styles.mapBtn} ${styles.mapBtnWide}`}
@@ -942,15 +1074,6 @@ export default function Page() {
           >
             <GearIcon />
             Settings
-          </button>
-          <button
-            ref={helpBtn}
-            type="button"
-            className={`${styles.mapBtn} ${styles.mapBtnWide}`}
-            onClick={() => setSheetOpen("help")}
-          >
-            <HelpIcon />
-            Help
           </button>
         </div>
 
@@ -1225,12 +1348,6 @@ export default function Page() {
         }}
         onDeleteData={deleteData}
       />
-      <HelpSheet
-        open={sheetOpen === "help"}
-        onClose={() => setSheetOpen(null)}
-        returnFocusRef={helpBtn}
-        onOpenLegend={() => setSheetOpen("legend")}
-      />
       <LegendSheet
         open={sheetOpen === "legend"}
         onClose={() => setSheetOpen(null)}
@@ -1242,6 +1359,37 @@ export default function Page() {
         returnFocusRef={layersBtn}
         layers={layers}
         onChange={patchLayers}
+      />
+      <AddPlaceSheet
+        open={sheetOpen === "addPlace"}
+        onClose={() => {
+          setSheetOpen(null);
+          cancelAddPlace();
+        }}
+        returnFocusRef={addPlaceBtn}
+        location={addPlaceLocation}
+        onChooseOnMap={beginAddPlace}
+        onCreated={(p) => {
+          setSheetOpen(null);
+          setPlaces((prev) => [...prev, p]);
+          setSelectedPlace(p);
+          setSheetOpen("place");
+        }}
+      />
+      <PlaceSheet
+        open={sheetOpen === "place"}
+        onClose={() => setSheetOpen(null)}
+        place={selectedPlace}
+        onChanged={(p) => {
+          setSelectedPlace(p);
+          setPlaces((prev) => prev.map((x) => (x.id === p.id ? p : x)));
+        }}
+        onRouteThere={(p) => {
+          setSheetOpen(null);
+          setEndpoint("end", { lat: p.lat, lon: p.lon });
+          if (startPt.current) void requestRoutes(startPt.current, { lat: p.lat, lon: p.lon });
+          else setStatus("picking");
+        }}
       />
 
       {/* First-run setup (F1): ask once which things to avoid, save as default. */}
@@ -1294,6 +1442,12 @@ export default function Page() {
           overwhelmBtn.current?.focus();
         }}
         savedContact={settings.savedContact}
+        onGoThere={(p) => {
+          setOverwhelm(false);
+          setEndpoint("end", { lat: p.lat, lon: p.lon });
+          if (startPt.current) void requestRoutes(startPt.current, { lat: p.lat, lon: p.lon });
+          else setStatus("picking");
+        }}
       />
     </div>
   );

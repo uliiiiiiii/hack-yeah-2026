@@ -66,7 +66,10 @@
   gap: 0.45rem;
   align-content: start;
   max-width: 30rem;
-  margin: 0 auto;
+  /* Left-aligned on desktop/tablet so the map keeps the right of the screen.
+     On phones the panel is already full-width (max-width 30rem > viewport), so
+     this only takes effect above the 480px breakpoint. */
+  margin: 0;
   max-height: calc(100dvh - var(--sheet-measured) - var(--pill-block) - var(--controls-block));
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -216,6 +219,11 @@
   gap: 0.4rem;
   font-size: 0.85rem;
   font-weight: 600;
+}
+/* Pressed state for the toggle map buttons (e.g. "Quiet places"). */
+.mapBtnActive {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 /* With the sheet expanded the map is not the focus, and these controls would
    be clipped off-screen anyway. */

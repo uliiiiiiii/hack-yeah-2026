@@ -9,9 +9,10 @@ import c from "./content.module.css";
 export interface MapLayers {
   noData: boolean; // dashed no-data stretches + "?" markers (UNC-02)
   altRoute: boolean; // the thin shortest-route comparison line (MAP-06)
+  quietPlaces: boolean; // markers for user-reported quiet places (BIZ-15, MAP-05)
 }
 
-export const DEFAULT_LAYERS: MapLayers = { noData: true, altRoute: true };
+export const DEFAULT_LAYERS: MapLayers = { noData: true, altRoute: true, quietPlaces: true };
 
 function Switch({
   label,
@@ -74,6 +75,12 @@ export default function LayersSheet({
           desc="The thin comparison line, shown alongside your match."
           checked={layers.altRoute}
           onChange={(v) => onChange({ altRoute: v })}
+        />
+        <Switch
+          label="Quiet places"
+          desc="Places people reported as quieter at certain times. They are claims, not facts."
+          checked={layers.quietPlaces}
+          onChange={(v) => onChange({ quietPlaces: v })}
         />
       </section>
     </Sheet>

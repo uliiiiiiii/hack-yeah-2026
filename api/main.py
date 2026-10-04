@@ -25,6 +25,7 @@ from fastapi.responses import JSONResponse
 
 import crowds
 import places
+import places_store
 import profiles
 from graph import Graph, GraphError
 from profiles import LIGHT_MODES, STRENGTH_WEIGHT, PROFILES, sensory_cost
@@ -55,7 +56,7 @@ allowed_origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -205,6 +206,171 @@ def search_places(q: str | None = None, lang: str = "en"):
         "attribution": places.ATTRIBUTION,
         "results": results,
     }
+
+
+# ---- Quiet places (§2O/§2P): declared quiet-hours places + votes + check-ins ----
+# A separate layer from street routing (BIZ-14). Declared data is always
+# Estimated / "Reported by a person", never Known (BIZ-05); votes are opinions,
+# not verification (ACC-05).
+
+async def _read_json(request: Request) -> dict | None:
+    """Read a JSON object body, or None if it is missing/malformed."""
+    try:
+        body = await request.json()
+    except Exception:
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def _device_id(body: dict) -> str | None:
+    """A non-empty, length-capped anonymous device id, or None."""
+    raw = str(body.get("device_id") or "").strip()
+    if not raw or len(raw) > 64:
+        return None
+    return raw
+
+
+@app.get("/quiet-places")
+def list_places(bbox: str | None = None):
+    """All user-submitted quiet places, optionally bounded to a bbox.
+
+    ``bbox`` is ``minLon,minLat,maxLon,maxLat`` (matching the map viewport).
+    """
+    box = None
+    if bbox:
+        parts = bbox.split(",")
+        if len(parts) == 4:
+            try:
+                box = tuple(float(p) for p in parts)
+            except ValueError:
+                box = None
+    return {"places": places_store.list_places(box)}
+
+
+@app.get("/quiet-places/{place_id}")
+def get_place(place_id: int):
+    place = places_store.get_place(place_id)
+    if place is None:
+        return error(404, "not_found", "No such place.")
+    return place
+
+
+@app.post("/quiet-places")
+async def create_place(request: Request):
+    body = await _read_json(request)
+    if body is None:
+        return error(400, "bad_request", "Send a JSON body with a name, location and quiet hours.")
+
+    name = str(body.get("name") or "").strip()
+    if not name:
+        return error(400, "bad_request", "Give the place a name.")
+    if len(name) > 120:
+        return error(400, "bad_request", "The name is too long.")
+    type_ = str(body.get("type") or "").strip()[:60]
+
+    try:
+        lat = float(body.get("lat"))
+        lon = float(body.get("lon"))
+    except (TypeError, ValueError):
+        return error(400, "bad_request", "The place needs a latitude and longitude.")
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return error(400, "bad_request", "The location is out of range.")
+    if GRAPH is not None and not GRAPH.in_bbox(lat, lon):
+        return error(422, "out_of_area", "That point is outside the covered Kraków area.")
+
+    entry_condition = str(body.get("entry_condition") or "open_to_anyone").strip()
+    if entry_condition not in places_store.ENTRY_CONDITIONS:
+        return error(400, "bad_request", "Unknown entry condition.")
+
+    try:
+        schedule = places_store.normalize_quiet_hours(body.get("quiet_hours"))
+    except ValueError as exc:
+        return error(400, "bad_request", str(exc))
+
+    device_id = _device_id(body)
+    if device_id is None:
+        return error(400, "bad_request", "A device id is needed to save your place.")
+
+    place = places_store.create_place(
+        name=name, type_=type_, lat=lat, lon=lon,
+        entry_condition=entry_condition, quiet_hours=schedule, device_id=device_id,
+    )
+    return place
+
+
+@app.post("/quiet-places/{place_id}/vote")
+async def vote(place_id: int, request: Request):
+    body = await _read_json(request)
+    if body is None:
+        return error(400, "bad_request", "Send a JSON body with device_id and value.")
+    value = str(body.get("value") or "").strip()
+    if value not in ("accurate", "not_accurate"):
+        return error(400, "bad_request", "Vote must be 'accurate' or 'not_accurate'.")
+    device_id = _device_id(body)
+    if device_id is None:
+        return error(400, "bad_request", "A device id is needed to vote.")
+    place = places_store.vote(place_id, device_id, value)
+    if not place:
+        return error(404, "not_found", "No such place.")
+    return place
+
+
+@app.post("/quiet-places/{place_id}/checkin")
+async def checkin(place_id: int, request: Request):
+    body = await _read_json(request)
+    if body is None:
+        return error(400, "bad_request", "Send a JSON body with device_id.")
+    device_id = _device_id(body)
+    if device_id is None:
+        return error(400, "bad_request", "A device id is needed to check in.")
+    value = body.get("value")
+    if value is not None and str(value) not in ("yes", "no", "not_sure"):
+        return error(400, "bad_request", "Check-in answer must be 'yes', 'no' or 'not_sure'.")
+    place = places_store.checkin(place_id, device_id, value)
+    if not place:
+        return error(404, "not_found", "No such place.")
+    return place
+
+
+@app.post("/quiet-places/{place_id}/verify")
+async def verify(place_id: int, request: Request):
+    expected = os.environ.get("VERIFY_TOKEN")
+    if not expected:
+        return error(401, "not_allowed", "Verification is not enabled on this server.")
+    body = await _read_json(request)
+    if body is None or body.get("token") != expected:
+        return error(401, "not_allowed", "Wrong verification token.")
+    verified = bool(body.get("verified", True))
+    note = str(body.get("note") or "").strip() or None
+    place = places_store.verify(place_id, verified=verified, note=note)
+    if place is None:
+        return error(404, "not_found", "No such place.")
+    return place
+
+
+@app.get("/calm-places")
+def calm_places(lat: str | None = None, lon: str | None = None,
+                day: str | None = None, hour: str | None = None):
+    """Eligible calm places for the overwhelm flow (F13): quiet hours active now
+    and not disputed, nearest first. Straight-line distance; walk time is an
+    estimate, not a routed distance. Optional day (0=Mon..6=Sun) + hour target a
+    specific time (mirrors /route's when_day/when_hour)."""
+    try:
+        lat_f = float(lat)
+        lon_f = float(lon)
+    except (TypeError, ValueError):
+        return error(400, "bad_request", "calm-places needs lat and lon.")
+    if not (-90 <= lat_f <= 90 and -180 <= lon_f <= 180):
+        return error(400, "bad_request", "The location is out of range.")
+    day_i = hour_i = None
+    if day is not None and hour is not None:
+        try:
+            day_i, hour_i = int(day), int(hour)
+            if not (0 <= day_i <= 6 and 0 <= hour_i <= 23):
+                day_i = hour_i = None
+        except ValueError:
+            day_i = hour_i = None
+    return {"places": places_store.calm_candidates(lat_f, lon_f, day=day_i, hour=hour_i)}
 
 
 def _route_cost(q):

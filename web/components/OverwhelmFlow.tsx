@@ -2,47 +2,89 @@
 
 // "I don't feel well" → get to a calm place (F13, §2N).
 //
-// Honesty note (OVW-06): a calm place must have Known/Estimated data for the
-// relevant factors. We do not yet have a vetted calm-place dataset (open item in
-// the spec, §7), so rather than invent one we tell the truth — "We don't know of
-// a calm place nearby" — and always offer Stay here and Call 112. Faking a
-// suggestion at a vulnerable moment is exactly what UNC-01/OVW-06 forbid.
+// Now backed by the user-submitted quiet places: we search for a place whose
+// quiet hours are active right now and that is not disputed, and offer the
+// nearest one — labelled honestly as "Reported by a person · Not verified ·
+// Estimated", never "Known" (OVW-06, BIZ-05). If nothing qualifies (or there is
+// no location), we say so plainly and always offer Stay here and Call 112.
 //
 // The screen is calm by construction: muted, no animation, Back and Call 112
 // always visible, one decision at a time (OVW-02, OVW-03, OVW-08, OVW-09).
 import { useEffect, useRef, useState } from "react";
 import { PhoneIcon } from "./icons";
+import {
+  ENTRY_CONDITION_LABEL,
+  searchCalmPlaces,
+  type CalmPlace,
+} from "@/lib/places";
 import styles from "./overwhelm.module.css";
 
-type View = "searching" | "none" | "stay";
+type View = "searching" | "none" | "stay" | "place";
 
 export default function OverwhelmFlow({
   open,
   onClose,
   savedContact,
+  onGoThere,
 }: {
   open: boolean;
   onClose: () => void;
   savedContact: string;
+  onGoThere: (place: CalmPlace) => void;
 }) {
   const [view, setView] = useState<View>("searching");
   const [slow, setSlow] = useState(false);
+  const [noLocation, setNoLocation] = useState(false);
+  const [places, setPlaces] = useState<CalmPlace[]>([]);
+  const [placeIndex, setPlaceIndex] = useState(0);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
 
-  // Reset to the searching state each time the flow opens (sync to the `open`
-  // prop coming from the parent — a legitimate external-driven reset).
+  // Reset and search each time the flow opens (external-driven reset).
   useEffect(() => {
     if (!open) return;
     /* eslint-disable react-hooks/set-state-in-effect */
     setView("searching");
     setSlow(false);
+    setNoLocation(false);
+    setPlaces([]);
+    setPlaceIndex(0);
     /* eslint-enable react-hooks/set-state-in-effect */
-    const t1 = window.setTimeout(() => setSlow(true), 3000); // "Still looking" (OVW F13.2)
-    // No dataset to search; resolve honestly to "none" shortly after.
-    const t2 = window.setTimeout(() => setView("none"), 1200);
+
+    const t1 = window.setTimeout(() => setSlow(true), 3000); // "Still looking" (F13.2)
+    let cancelled = false;
+
+    if (!navigator.geolocation) {
+      setNoLocation(true);
+      setView("none");
+      return () => window.clearTimeout(t1);
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        searchCalmPlaces(pos.coords.latitude, pos.coords.longitude)
+          .then((found) => {
+            if (cancelled) return;
+            if (found.length > 0) {
+              setPlaces(found);
+              setPlaceIndex(0);
+              setView("place");
+            } else {
+              setView("none");
+            }
+          })
+          .catch(() => {
+            if (!cancelled) setView("none");
+          });
+      },
+      () => {
+        if (!cancelled) {
+          setNoLocation(true);
+          setView("none");
+        }
+      },
+    );
     return () => {
+      cancelled = true;
       window.clearTimeout(t1);
-      window.clearTimeout(t2);
     };
   }, [open]);
 
@@ -51,6 +93,8 @@ export default function OverwhelmFlow({
   }, [open, view]);
 
   if (!open) return null;
+
+  const place = places[placeIndex];
 
   return (
     <div
@@ -84,14 +128,51 @@ export default function OverwhelmFlow({
           </>
         )}
 
+        {view === "place" && place && (
+          <>
+            <h1 id="calm-heading" className={styles.heading} tabIndex={-1} ref={headingRef}>
+              {place.name}
+            </h1>
+            <p className={styles.line}>
+              {place.type ? `${place.type} · ` : ""}about {place.walk_min} min walk
+            </p>
+            <p className={styles.line}>
+              Reported by a person · Not verified · Estimated. {ENTRY_CONDITION_LABEL[place.entry_condition]}.
+            </p>
+            <div className={styles.choices}>
+              <button type="button" className={styles.choicePrimary} onClick={() => onGoThere(place)}>
+                Go there
+              </button>
+              {places.length > 1 && (
+                <button
+                  type="button"
+                  className={styles.choice}
+                  onClick={() => setPlaceIndex((i) => (i + 1) % places.length)}
+                >
+                  Show another place
+                </button>
+              )}
+              <button type="button" className={styles.choice} onClick={() => setView("stay")}>
+                Stay here
+              </button>
+              {savedContact && (
+                <a className={styles.choice} href={`tel:${savedContact}`}>
+                  Call someone
+                </a>
+              )}
+            </div>
+          </>
+        )}
+
         {view === "none" && (
           <>
             <h1 id="calm-heading" className={styles.heading} tabIndex={-1} ref={headingRef}>
-              We don&apos;t know of a calm place nearby
+              {noLocation ? "We can't find your location" : "We don't know of a calm place nearby"}
             </h1>
             <p className={styles.line}>
-              We don&apos;t have calm-place data for this area yet, so we won&apos;t guess. You can stay where you
-              are, or call someone.
+              {noLocation
+                ? "We can't search without your location. You can stay where you are, or call someone."
+                : "No place with quiet hours right now. We won't guess. You can stay where you are, or call someone."}
             </p>
             <div className={styles.choices}>
               <button type="button" className={styles.choicePrimary} onClick={() => setView("stay")}>

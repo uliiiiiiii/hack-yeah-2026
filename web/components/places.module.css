@@ -1,0 +1,133 @@
+/* Quiet-places form + place sheet. Reuses the design tokens from globals.css. */
+
+.fieldBlock {
+  margin: 0 0 0.9rem;
+}
+.fieldLabel {
+  display: block;
+  font-weight: 600;
+  margin: 0 0 0.3rem;
+}
+.fieldHint {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  margin-top: 0.15rem;
+}
+
+.coords {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+}
+
+/* Quiet-hours schedule editor: one row per (day + start + end). */
+.schedule {
+  display: grid;
+  gap: 0.5rem;
+}
+.scheduleRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 0.4rem;
+}
+.scheduleRow select {
+  font: inherit;
+  min-height: 44px;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+.scheduleRow input[type="time"] {
+  font: inherit;
+  min-height: 44px;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+.removeBtn {
+  min-height: 44px;
+  padding: 0 0.4rem;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.removeBtn:hover { color: var(--text); }
+
+/* Place detail: provenance / trust / dates. */
+.placeName {
+  margin: 0 0 0.1rem;
+  font-size: 1.15rem;
+}
+.placeType {
+  margin: 0 0 0.6rem;
+  color: var(--text-muted);
+}
+.meta {
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  margin: 0 0 0.25rem;
+}
+.trust {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+.trust svg { width: 18px; height: 18px; }
+.trustDisputed { color: var(--error); }
+
+.window {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.window:last-child { border-bottom: 0; }
+.windowNow { color: var(--accent); font-weight: 700; }
+
+/* Vote + check-in controls. */
+.voteRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+.voteBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 48px;
+  padding: 0 1rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.voteBtn svg { width: 20px; height: 20px; }
+.voteBtn[aria-pressed="true"] {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.voteCounts {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  margin: 0.35rem 0 0;
+}
+
+.divider {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 0.8rem 0;
+}

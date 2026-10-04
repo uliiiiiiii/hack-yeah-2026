@@ -65,6 +65,11 @@ export default function PlaceField({
   const abort = useRef<AbortController | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const skipAutoSearch = useRef(false);
+  // The committed value at mount / last edit, so the suggestion list only opens
+  // on a real edit, never when the field re-appears with a value already set
+  // (e.g. re-opening the top panel would otherwise flash the "Use coordinates"
+  // option for both fields).
+  const prevValue = useRef(value);
 
   const coordsOption = useCallback((text: string): Option[] => {
     const coords = parseCoords(text);
@@ -163,6 +168,10 @@ export default function PlaceField({
       return;
     }
     if (!AUTO_SEARCH) return;
+
+    // No edit since mount (or since the last handled edit) -> stay closed.
+    if (value === prevValue.current) return;
+    prevValue.current = value;
 
     const text = value.trim();
     if (parseCoords(value)) {
