@@ -1,4 +1,4 @@
-# Kraków walking-route planner (skeleton)
+# Ciszej — sensory-aware walking routes for Kraków
 
 Click two points on a map of Kraków and get a walking route back from our own API.
 Routing runs on an OpenStreetMap walking graph with **pluggable edge costs**: a

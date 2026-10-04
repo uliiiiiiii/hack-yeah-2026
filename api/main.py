@@ -43,7 +43,7 @@ WALK_SPEED_KMH = 5.0
 LOUD_DB = 65.0  # Lden at/above this counts as "loud" in the route summary
 DATA_DIR = Path(os.environ.get("DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
 
-app = FastAPI(title="Kraków walking-route API")
+app = FastAPI(title="Ciszej API")
 
 # Defaults cover the web dev server plus the origins a Capacitor WebView uses
 # (Android serves the bundled app from https://localhost, iOS from

@@ -1,5 +1,5 @@
 ---
-title: Kraków Calm Walks — Routing API
+title: Ciszej — Routing API
 emoji: 🚶
 colorFrom: green
 colorTo: green
@@ -8,7 +8,7 @@ app_port: 8000
 pinned: false
 ---
 
-# Kraków Calm Walks — Routing API
+# Ciszej — Routing API
 
 FastAPI backend for the Kraków sensory-aware walking-route planner. It serves walking
 routes over the OpenStreetMap graph, weighted by the things that matter to the user

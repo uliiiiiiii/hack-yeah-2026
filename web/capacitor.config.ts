@@ -7,7 +7,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 // these off. See the "Mobile (Android)" section of web/README-mobile.md.
 const config: CapacitorConfig = {
   appId: "com.krakowroutes.app",
-  appName: "Krakow Routes",
+  appName: "Ciszej",
   webDir: "out",
   android: {
     allowMixedContent: true,

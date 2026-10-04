@@ -34,7 +34,7 @@ NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 # Required by the policy: identify the application. Override when you fork this.
 USER_AGENT = os.environ.get(
     "GEOCODER_USER_AGENT",
-    "KrakowCalmWalks/0.1 (hackathon prototype; https://github.com/hack-yeah-2026)",
+    "Ciszej/0.1 (hackathon prototype; https://github.com/hack-yeah-2026)",
 )
 
 # left(lon), top(lat), right(lon), bottom(lat) — the Kraków agglomeration,

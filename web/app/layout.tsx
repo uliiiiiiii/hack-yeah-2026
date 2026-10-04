@@ -3,7 +3,7 @@ import "./globals.css";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 export const metadata: Metadata = {
-  title: "Kraków calm walks",
+  title: "Ciszej",
   description:
     "Plan a walk in Kraków that fits your senses: avoid noise, crowds, or pick well-lit streets. We mark where we have no data.",
 };

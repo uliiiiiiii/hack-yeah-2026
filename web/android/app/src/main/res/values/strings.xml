@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Krakow Routes</string>
-    <string name="title_activity_main">Krakow Routes</string>
+    <string name="app_name">Ciszej</string>
+    <string name="title_activity_main">Ciszej</string>
     <string name="package_name">com.krakowroutes.app</string>
     <string name="custom_url_scheme">com.krakowroutes.app</string>
 </resources>
